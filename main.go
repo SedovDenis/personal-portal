@@ -19,10 +19,19 @@ type PageData struct {
 	ServerName  string
 	CurrentTime string
 	Uptime      string
-	Memory      string
+
+	CPU        string
+	CPUPercent float64
+
+	Memory        string
+	MemoryPercent float64
+
 	Disk        string
-	BackupDisk  string
-	CPU         string
+	DiskPercent float64
+
+	BackupDisk        string
+	BackupDiskPercent float64
+	BackupMounted     bool
 }
 
 var (
@@ -30,73 +39,95 @@ var (
 	cpuMu    sync.RWMutex
 )
 
-func getMemoryUsage() (string, error) {
-	memoryinfo, err := os.ReadFile("/proc/meminfo")
+func getMemoryUsage() (string, float64, error) {
+	memoryInfo, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	var memTotal, memAvailable float64
-	lines := strings.Split(string(memoryinfo), "\n")
+
+	lines := strings.Split(string(memoryInfo), "\n")
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "MemTotal:") {
 			fields := strings.Fields(line)
+
 			if len(fields) < 2 {
-				return "", fmt.Errorf("invalid MemTotal line")
+				return "", 0, fmt.Errorf("invalid MemTotal line")
 			}
 
 			memTotal, err = strconv.ParseFloat(fields[1], 64)
 			if err != nil {
-				return "", err
+				return "", 0, err
 			}
 		}
 
 		if strings.HasPrefix(line, "MemAvailable:") {
 			fields := strings.Fields(line)
+
 			if len(fields) < 2 {
-				return "", fmt.Errorf("invalid MemAvailable line")
+				return "", 0, fmt.Errorf("invalid MemAvailable line")
 			}
 
 			memAvailable, err = strconv.ParseFloat(fields[1], 64)
 			if err != nil {
-				return "", err
+				return "", 0, err
 			}
 		}
+	}
+
+	if memTotal == 0 {
+		return "", 0, fmt.Errorf("MemTotal not found")
 	}
 
 	memUsed := memTotal - memAvailable
 
 	memTotalGiB := memTotal / 1024 / 1024
-	memUsedGib := memUsed / 1024 / 1024
+	memUsedGiB := memUsed / 1024 / 1024
 
 	usedPercent := memUsed / memTotal * 100
-	return fmt.Sprintf("%.2f / %.2f GiB (%.2f%%)", memUsedGib, memTotalGiB, usedPercent), nil
+
+	result := fmt.Sprintf(
+		"%.2f / %.2f GiB (%.2f%%)",
+		memUsedGiB,
+		memTotalGiB,
+		usedPercent,
+	)
+
+	return result, usedPercent, nil
 }
 
-func getDiskUsage(path string) (string, error) {
+func getDiskUsage(path string) (string, float64, error) {
 	var stat syscall.Statfs_t
 
 	if err := syscall.Statfs(path, &stat); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	totalBytes := stat.Blocks * uint64(stat.Bsize)
 	freeBytes := stat.Bfree * uint64(stat.Bsize)
 	usedBytes := totalBytes - freeBytes
 
+	if totalBytes == 0 {
+		return "", 0, fmt.Errorf("disk size is zero")
+	}
+
 	const gib = 1024 * 1024 * 1024
 
 	totalGiB := float64(totalBytes) / gib
 	usedGiB := float64(usedBytes) / gib
+
 	usedPercent := float64(usedBytes) / float64(totalBytes) * 100
 
-	return fmt.Sprintf(
+	result := fmt.Sprintf(
 		"%.2f / %.2f GiB (%.2f%%)",
 		usedGiB,
 		totalGiB,
 		usedPercent,
-	), nil
+	)
+
+	return result, usedPercent, nil
 }
 
 func isMountPoint(path string) (bool, error) {
@@ -234,35 +265,37 @@ func main() {
 
 		uptimeStr := fmt.Sprintf("%dh %dm", hours, minutes)
 
-		memory, err := getMemoryUsage()
+		cpuUsage := currentCPUUsage()
+		cpu := fmt.Sprintf("%.1f%%", cpuUsage)
+
+		memory, memoryPercent, err := getMemoryUsage()
 		if err != nil {
 			http.Error(w, "Ошибка получения информации о Memory", http.StatusInternalServerError)
 			return
 		}
 
-		disk, err := getDiskUsage("/")
+		disk, diskPercent, err := getDiskUsage("/")
 		if err != nil {
 			http.Error(w, "Ошибка получения информации о диске", http.StatusInternalServerError)
 			return
 		}
 
-		mounted, err := isMountPoint("/srv/backups")
+		backupMounted, err := isMountPoint("/srv/backups")
 		if err != nil {
 			http.Error(w, "Ошибка проверки backup-диска", http.StatusInternalServerError)
 			return
 		}
 
 		backupDisk := "Not mounted"
+		backupDiskPercent := float64(0)
 
-		if mounted {
-			backupDisk, err = getDiskUsage("/srv/backups")
+		if backupMounted {
+			backupDisk, backupDiskPercent, err = getDiskUsage("/srv/backups")
 			if err != nil {
 				http.Error(w, "Ошибка получения информации о backup-диске", http.StatusInternalServerError)
 				return
 			}
 		}
-
-		cpu := fmt.Sprintf("%.1f%%", cpuUsage)
 
 		data := PageData{
 			Title:       "Personal Portal",
@@ -270,18 +303,31 @@ func main() {
 			ServerName:  hostname,
 			CurrentTime: time.Now().Format("02.01.2006 15:04:05"),
 			Uptime:      uptimeStr,
-			Memory:      memory,
+
+			CPU:        cpu,
+			CPUPercent: cpuUsage,
+
+			Memory:        memory,
+			MemoryPercent: memoryPercent,
+
 			Disk:        disk,
-			BackupDisk:  backupDisk,
-			CPU:         cpu,
+			DiskPercent: diskPercent,
+
+			BackupDisk:        backupDisk,
+			BackupDiskPercent: backupDiskPercent,
+			BackupMounted:     backupMounted,
 		}
 
 		tmpl.Execute(w, data)
 	})
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"status":"ok"}`)
 	})
+
+	fs := http.FileServer(http.Dir("static"))
+	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	http.ListenAndServe(":8080", nil)
 }

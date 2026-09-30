@@ -2,20 +2,56 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <link rel="stylesheet" href="/static/style.css">
     <title>Personal Portal</title>
 </head>
 <body>
-    <h1>{{.Title}}</h1>
+    <main class="container">
+        <h1>{{.Title}}</h1>
 
-    <h2>Server</h2>
+        <section class="server-info">
+            <p><strong>Hostname:</strong> {{.ServerName}}</p>
+            <p><strong>Current time:</strong> {{.CurrentTime}}</p>
+            <p><strong>Status:</strong> {{.Status}}</p>
+        </section>
 
-    <p>Hostname: {{.ServerName}}</p>
-    <p>Current time: {{.CurrentTime}}</p>
-    <p>Status: {{.Status}}</p>
-    <p>Uptime: {{.Uptime}}</p>
-    <p>Memory: {{.Memory}}</p>
-    <p>Disk: {{.Disk}}</p>
-    <p>Backup disk: {{.BackupDisk}}</p>
-    <p>CPU: {{.CPU}}</p>
+        <section class="metrics">
+
+            <div class="card">
+                <h2>CPU</h2>
+                <p>{{.CPU}}</p>
+                <progress value="{{.CPUPercent}}" max="100"></progress>
+            </div>
+
+            <div class="card">
+                <h2>Memory</h2>
+                <p>{{.Memory}}</p>
+                <progress value="{{.MemoryPercent}}" max="100"></progress>
+            </div>
+
+            <div class="card">
+                <h2>System disk</h2>
+                <p>{{.Disk}}</p>
+                <progress value="{{.DiskPercent}}" max="100"></progress>
+            </div>
+
+            <div class="card">
+                <h2>Backup disk</h2>
+
+                {{if .BackupMounted}}
+                    <p>{{.BackupDisk}}</p>
+                    <progress value="{{.BackupDiskPercent}}" max="100"></progress>
+                {{else}}
+                    <p>Not mounted</p>
+                {{end}}
+            </div>
+
+            <div class="card">
+                <h2>Uptime</h2>
+                <p>{{.Uptime}}</p>
+            </div>
+
+        </section>
+    </main>
 </body>
 </html>
