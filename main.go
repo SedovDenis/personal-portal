@@ -5,8 +5,10 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -17,6 +19,8 @@ type PageData struct {
 	CurrentTime string
 	Uptime      string
 	Memory      string
+	Disk        string
+	BackupDisk  string
 }
 
 func getMemoryUsage() (string, error) {
@@ -61,6 +65,47 @@ func getMemoryUsage() (string, error) {
 
 	usedPercent := memUsed / memTotal * 100
 	return fmt.Sprintf("%.2f / %.2f GiB (%.2f%%)", memUsedGib, memTotalGiB, usedPercent), nil
+}
+
+func getDiskUsage(path string) (string, error) {
+	var stat syscall.Statfs_t
+
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return "", err
+	}
+
+	totalBytes := stat.Blocks * uint64(stat.Bsize)
+	freeBytes := stat.Bfree * uint64(stat.Bsize)
+	usedBytes := totalBytes - freeBytes
+
+	const gib = 1024 * 1024 * 1024
+
+	totalGiB := float64(totalBytes) / gib
+	usedGiB := float64(usedBytes) / gib
+	usedPercent := float64(usedBytes) / float64(totalBytes) * 100
+
+	return fmt.Sprintf(
+		"%.2f / %.2f GiB (%.2f%%)",
+		usedGiB,
+		totalGiB,
+		usedPercent,
+	), nil
+}
+
+func isMountPoint(path string) (bool, error) {
+	var pathStat syscall.Stat_t
+	if err := syscall.Stat(path, &pathStat); err != nil {
+		return false, err
+	}
+
+	parent := filepath.Dir(path)
+
+	var parentStat syscall.Stat_t
+	if err := syscall.Stat(parent, &parentStat); err != nil {
+		return false, err
+	}
+
+	return pathStat.Dev != parentStat.Dev, nil
 }
 
 func main() {
@@ -112,6 +157,28 @@ func main() {
 			return
 		}
 
+		disk, err := getDiskUsage("/")
+		if err != nil {
+			http.Error(w, "Ошибка получения информации о диске", http.StatusInternalServerError)
+			return
+		}
+
+		mounted, err := isMountPoint("/srv/backups")
+		if err != nil {
+			http.Error(w, "Ошибка проверки backup-диска", http.StatusInternalServerError)
+			return
+		}
+
+		backupDisk := "Not mounted"
+
+		if mounted {
+			backupDisk, err = getDiskUsage("/srv/backups")
+			if err != nil {
+				http.Error(w, "Ошибка получения информации о backup-диске", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		data := PageData{
 			Title:       "Personal Portal",
 			Status:      "Server is running",
@@ -119,6 +186,8 @@ func main() {
 			CurrentTime: time.Now().Format("02.01.2006 15:04:05"),
 			Uptime:      uptimeStr,
 			Memory:      memory,
+			Disk:        disk,
+			BackupDisk:  backupDisk,
 		}
 
 		tmpl.Execute(w, data)
