@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -21,7 +22,13 @@ type PageData struct {
 	Memory      string
 	Disk        string
 	BackupDisk  string
+	CPU         string
 }
+
+var (
+	cpuUsage float64
+	cpuMu    sync.RWMutex
+)
 
 func getMemoryUsage() (string, error) {
 	memoryinfo, err := os.ReadFile("/proc/meminfo")
@@ -108,7 +115,83 @@ func isMountPoint(path string) (bool, error) {
 	return pathStat.Dev != parentStat.Dev, nil
 }
 
+func readCPUStat() (total uint64, idle uint64, err error) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	fields := strings.Fields(lines[0])
+
+	if len(fields) < 9 {
+		return 0, 0, fmt.Errorf("invalid proc stat format")
+	}
+
+	for i := 1; i <= 8; i++ {
+		val, err := strconv.ParseUint(fields[i], 10, 64)
+		if err != nil {
+			return 0, 0, err
+		}
+		total += val
+
+		// Отдельно считаем idle (индексы 4 и 5)
+		if i == 4 || i == 5 {
+			idle += val
+		}
+	}
+
+	return total, idle, nil
+}
+
+func getCPUUsage() (float64, error) {
+	total1, idle1, err := readCPUStat()
+	if err != nil {
+		return 0, err
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	total2, idle2, err := readCPUStat()
+	if err != nil {
+		return 0, err
+	}
+
+	totalDelta := total2 - total1
+	idleDelta := idle2 - idle1
+
+	if totalDelta == 0 {
+		return 0, nil
+	}
+
+	usage := float64(totalDelta-idleDelta) / float64(totalDelta) * 100
+
+	return usage, nil
+}
+
+func monitorCPU() {
+	for {
+		usage, err := getCPUUsage()
+		if err == nil {
+			cpuMu.Lock()
+			cpuUsage = usage
+			cpuMu.Unlock()
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func currentCPUUsage() float64 {
+	cpuMu.RLock()
+	defer cpuMu.RUnlock()
+
+	return cpuUsage
+}
+
 func main() {
+	go monitorCPU()
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		tmpl, err := template.ParseFiles("templates/index.html")
 
@@ -179,6 +262,8 @@ func main() {
 			}
 		}
 
+		cpu := fmt.Sprintf("%.1f%%", cpuUsage)
+
 		data := PageData{
 			Title:       "Personal Portal",
 			Status:      "Server is running",
@@ -188,6 +273,7 @@ func main() {
 			Memory:      memory,
 			Disk:        disk,
 			BackupDisk:  backupDisk,
+			CPU:         cpu,
 		}
 
 		tmpl.Execute(w, data)
