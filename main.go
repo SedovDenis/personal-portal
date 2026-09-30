@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PageData struct {
@@ -38,6 +42,12 @@ var (
 	cpuUsage float64
 	cpuMu    sync.RWMutex
 )
+
+type Note struct {
+	ID      int64
+	Title   string
+	Content string
+}
 
 func getMemoryUsage() (string, float64, error) {
 	memoryInfo, err := os.ReadFile("/proc/meminfo")
@@ -220,7 +230,34 @@ func currentCPUUsage() float64 {
 	return cpuUsage
 }
 
+func connectDB() (*pgxpool.Pool, error) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is not set")
+	}
+
+	db, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := db.Ping(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return db, nil
+}
+
 func main() {
+	db, err := connectDB()
+	if err != nil {
+		log.Fatalf("database error: %v", err)
+	}
+	defer db.Close()
+
+	log.Println("PostgreSQL connected")
+
 	go monitorCPU()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +361,137 @@ func main() {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"status":"ok"}`)
+	})
+
+	http.HandleFunc("/notes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			title := r.FormValue("title")
+			content := r.FormValue("content")
+
+			_, err := db.Exec(
+				r.Context(),
+				`INSERT INTO notes (title, content)
+				VALUES ($1, $2)`,
+				title,
+				content,
+			)
+			if err != nil {
+				http.Error(w, "Ошибка создания заметки", http.StatusInternalServerError)
+				return
+			}
+
+			http.Redirect(w, r, "/notes", http.StatusSeeOther)
+			return
+		}
+
+		rows, err := db.Query(
+			r.Context(),
+			`SELECT id, title, content
+			FROM notes
+			ORDER BY id DESC`,
+		)
+		if err != nil {
+			http.Error(w, "Ошибка получения заметок", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var notes []Note
+
+		for rows.Next() {
+			var note Note
+
+			if err := rows.Scan(&note.ID, &note.Title, &note.Content); err != nil {
+				http.Error(w, "Ошибка чтения заметки", http.StatusInternalServerError)
+				return
+			}
+
+			notes = append(notes, note)
+		}
+
+		if err := rows.Err(); err != nil {
+			http.Error(w, "Ошибка чтения заметок", http.StatusInternalServerError)
+			return
+		}
+
+		tmpl, err := template.ParseFiles("templates/notes.html")
+		if err != nil {
+			http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		if err := tmpl.Execute(w, notes); err != nil {
+			log.Printf("template error: %v", err)
+		}
+	})
+
+	http.HandleFunc("/notes/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		idStr := r.FormValue("id")
+
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Некорректный ID заметки", http.StatusBadRequest)
+			return
+		}
+
+		_, err = db.Exec(
+			r.Context(),
+			`DELETE FROM notes WHERE id = $1`,
+			id,
+		)
+		if err != nil {
+			http.Error(w, "Ошибка удаления заметки", http.StatusInternalServerError)
+			return
+		}
+
+		http.Redirect(w, r, "/notes", http.StatusSeeOther)
+	})
+
+	http.HandleFunc("/notes/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		idStr := r.FormValue("id")
+		title := r.FormValue("title")
+		content := r.FormValue("content")
+
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Некорректный ID заметки", http.StatusBadRequest)
+			return
+		}
+
+		if title == "" {
+			http.Error(w, "Заголовок не может быть пустым", http.StatusBadRequest)
+			return
+		}
+
+		_, err = db.Exec(
+			r.Context(),
+			`UPDATE notes
+			SET title = $1,
+				content = $2,
+				updated_at = NOW()
+			WHERE id = $3`,
+			title,
+			content,
+			id,
+		)
+		if err != nil {
+			http.Error(w, "Ошибка обновления заметки", http.StatusInternalServerError)
+			return
+		}
+
+		http.Redirect(w, r, "/notes", http.StatusSeeOther)
 	})
 
 	fs := http.FileServer(http.Dir("static"))
