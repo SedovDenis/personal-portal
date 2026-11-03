@@ -1,76 +1,91 @@
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f3f4f6;
-    color: #1f2937;
+.card form + form { margin-top: 12px; }
+.server-info { margin-bottom: 22px; color: var(--muted); }
+.server-info p { margin: 3px 0; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+progress { width: 100%; height: 12px; accent-color: var(--accent); }
+.site-link-grid { display:flex; gap:10px; margin: 20px 0 26px; flex-wrap:wrap; }
+.site-link-grid a { background:#fff; padding: 12px 17px; border:1px solid var(--border); border-radius:12px; font-weight:600; }
+/* Notes: keep existing forms usable without altering their Go handlers. */
+input, textarea, button { font: inherit; }
+input, textarea { max-width: 100%; }
+main.container > .card { margin: 12px 0; }
+main.container > .card input[type=text], main.container > .card textarea { width: 100%; border: 1px solid var(--border); border-radius: 9px; padding: 10px; }
+button { cursor: pointer; }
+main.container > .card button { background:var(--accent); color:#fff; border:0; border-radius:9px; padding: 10px 16px; font-weight:600; }
+
+
+/* Simple notes module: preserve existing HTML and Go handlers. */
+main.container > h1 { margin: 16px 0 22px; }
+main.container > .card { margin: 0 0 18px; max-width: 960px; }
+main.container > .card h2 { margin-bottom: 18px; }
+main.container > .card form p { font-size: 14px; font-weight: normal; margin: 0 0 14px; }
+main.container > .card input[type="text"],
+main.container > .card textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid #dce3ef;
+  border-radius: 11px;
+  background: #fbfcff;
+  color: var(--text);
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+main.container > .card textarea { min-height: 115px; resize: vertical; }
+main.container > .card input:focus,
+main.container > .card textarea:focus {
+  outline: none;
+  border-color: #6678ed;
+  box-shadow: 0 0 0 3px rgba(66,89,233,.11);
+}
+main.container > .card small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+main.container > .card small:last-of-type { margin-bottom: 16px; }
+main.container > .card button:hover { background: var(--accent-dark); }
+main.container > .card form[action="/notes/delete"] button {
+  background: #fff1f1;
+  border: 1px solid #ffd9d9;
+  color: #b53342;
+}
+main.container > .card form[action="/notes/delete"] button:hover { background: #ffe4e4; }
+/* Preserve the mortgage schedule and dashboard metrics. */
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+th, td { padding: 12px; border-bottom: 1px solid #e5eaf2; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { background: #f7f9fd; color: #53617b; }
+tbody tr:hover { background: #f8faff; }
+@media (max-width: 640px) {
+  .container { width: calc(100% - 28px); padding: 20px 0; }
+  .card { padding: 18px; border-radius: 16px; }
 }
 
-.container {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 32px 20px;
+form[action="/notes"] button[type="submit"],
+form[action="/notes/update"] button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    visibility: visible;
+    opacity: 1;
+
+    background-color: #4259e9;
+    color: #ffffff;
+    border: 1px solid #4259e9;
+    border-radius: 10px;
+
+    padding: 11px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
 }
 
-.server-info {
-    margin-bottom: 24px;
-}
-
-.metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-}
-
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.card h2 {
-    margin-top: 0;
-    font-size: 18px;
-}
-
-.card p {
-    margin-bottom: 0;
-    font-size: 22px;
-    font-weight: bold;
-}
-
-.progress {
-    width: 100%;
-    height: 12px;
-}
-
-progress {
-    width: 100%;
-    height: 14px;
-    margin-top: 12px;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 16px;
-}
-
-th, td {
-    padding: 12px;
-    border-bottom: 1px solid #e5e7eb;
-    text-align: right;
-}
-
-th:first-child,
-td:first-child {
-    text-align: left;
-}
-
-th {
-    background: #f9fafb;
-}
-
-tbody tr:hover {
-    background: #f3f4f6;
+form[action="/notes"] button:hover,
+form[action="/notes/update"] button:hover {
+    background-color: #303fc0;
 }

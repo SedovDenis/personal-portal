@@ -39,6 +39,9 @@
                 <form method="POST" action="/notes/update">
                     <input type="hidden" name="id" value="{{.ID}}">
 
+                    <small>Создано: {{.CreatedAt.Format "02.01.2006 15:04"}}</small><br>
+                    <small>Изменено: {{.UpdatedAt.Format "02.01.2006 15:04"}}</small>
+
                     <p>
                         <input
                             type="text"

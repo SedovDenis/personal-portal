@@ -44,9 +44,11 @@ var (
 )
 
 type Note struct {
-	ID      int64
-	Title   string
-	Content string
+	ID        int64
+	Title     string
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func getMemoryUsage() (string, float64, error) {
@@ -376,6 +378,7 @@ func main() {
 				content,
 			)
 			if err != nil {
+				log.Printf("Ошибка INSERT в notes: %v", err)
 				http.Error(w, "Ошибка создания заметки", http.StatusInternalServerError)
 				return
 			}
@@ -386,7 +389,7 @@ func main() {
 
 		rows, err := db.Query(
 			r.Context(),
-			`SELECT id, title, content
+			`SELECT id, title, content, created_at, updated_at
 			FROM notes
 			ORDER BY id DESC`,
 		)
@@ -401,7 +404,7 @@ func main() {
 		for rows.Next() {
 			var note Note
 
-			if err := rows.Scan(&note.ID, &note.Title, &note.Content); err != nil {
+			if err := rows.Scan(&note.ID, &note.Title, &note.Content, &note.CreatedAt, &note.UpdatedAt); err != nil {
 				http.Error(w, "Ошибка чтения заметки", http.StatusInternalServerError)
 				return
 			}
@@ -492,23 +495,6 @@ func main() {
 		}
 
 		http.Redirect(w, r, "/notes", http.StatusSeeOther)
-	})
-
-	http.HandleFunc("/mortgage", func(w http.ResponseWriter, r *http.Request) {
-		tmpl, err := template.ParseFiles("templates/mortgage.html")
-
-		if err != nil {
-			http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		schedule := calculateMortgageSchedule(1_000_000, 12, 30_000, 10_000, 12)
-
-		if err := tmpl.Execute(w, schedule); err != nil {
-			log.Printf("Mortgage template error: %v", err)
-		}
 	})
 
 	fs := http.FileServer(http.Dir("static"))
