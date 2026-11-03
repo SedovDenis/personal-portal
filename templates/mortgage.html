@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ипотека — Personal Portal</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <a href="/">← Dashboard</a>
+
+        <h1>Моя ипотека</h1>
+        <p>График погашения ипотеки</p>
+
+        <div class="card">
+            <h2>Расчёт на 12 месяцев</h2>
+
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Месяц</th>
+                            <th>Проценты</th>
+                            <th>Основной долг</th>
+                            <th>Остаток долга</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {{range $index, $month := .}}
+                        <tr>
+                            <td>{{printf "%d" $index}}</td>
+                            <td>{{printf "%.2f" $month.Interest}} ₽</td>
+                            <td>{{printf "%.2f" $month.Principal}} ₽</td>
+                            <td>{{printf "%.2f" $month.Remaining}} ₽</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="4">Нет данных для расчёта.</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

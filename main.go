@@ -494,6 +494,23 @@ func main() {
 		http.Redirect(w, r, "/notes", http.StatusSeeOther)
 	})
 
+	http.HandleFunc("/mortgage", func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := template.ParseFiles("templates/mortgage.html")
+
+		if err != nil {
+			http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		schedule := calculateMortgageSchedule(1_000_000, 12, 30_000, 10_000, 12)
+
+		if err := tmpl.Execute(w, schedule); err != nil {
+			log.Printf("Mortgage template error: %v", err)
+		}
+	})
+
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
