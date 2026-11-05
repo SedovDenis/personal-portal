@@ -33,10 +33,10 @@ func TestAuthRedirectAndPublicHealth(t *testing.T) {
 }
 func TestAuthRedirectPathSafety(t *testing.T) {
 	cases := []struct{ in, out string }{
-		{"https://evil.example/path", "/notes"},
-		{"//evil.example/path", "/notes"},
+		{"https://evil.example/path", "/"},
+		{"//evil.example/path", "/"},
 		{"/notes?view=templates", "/notes?view=templates"},
-		{"/notes\\foo", "/notes"},
+		{"/notes\\foo", "/"},
 	}
 	for _, c := range cases {
 		if got := validNext(c.in); got != c.out {
@@ -81,15 +81,17 @@ func TestUserManagementPermissions(t *testing.T) {
 }
 
 func TestUsersTemplateRendersManagementForms(t *testing.T) {
-	tmpl, err := template.ParseFiles("templates/users.html")
+	tmpl, err := template.ParseFiles("templates/users.html", "templates/portal-nav.html")
 	if err != nil {
 		t.Fatalf("parse users template: %v", err)
 	}
 	data := struct {
+		Nav            portalNav
 		Current        *portalUser
 		Users          []portalUser
 		Token, Message string
 	}{
+		Nav:     newPortalNav(&portalUser{Username: "admin", DisplayName: "Администратор", IsAdmin: true}, "test-csrf", "users"),
 		Current: &portalUser{ID: 1, Username: "admin", DisplayName: "Администратор", IsAdmin: true},
 		Users: []portalUser{
 			{ID: 1, Username: "admin", DisplayName: "Администратор", IsAdmin: true},

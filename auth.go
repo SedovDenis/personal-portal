@@ -53,7 +53,7 @@ func registerPortalAuth(db *pgxpool.Pool) *portalAuth {
 	if err != nil {
 		log.Fatalf("auth template: %v", err)
 	}
-	a.usersTmpl, err = template.ParseFiles("templates/users.html")
+	a.usersTmpl, err = template.ParseFiles("templates/users.html", "templates/portal-nav.html")
 	if err != nil {
 		log.Fatalf("users template: %v", err)
 	}
@@ -125,7 +125,7 @@ func secureCookie(name, val string, maxAge int) *http.Cookie {
 }
 func validNext(next string) string {
 	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsAny(next, "\r\n\\") {
-		return "/notes"
+		return "/"
 	}
 	return next
 }
@@ -280,10 +280,11 @@ func (a *portalAuth) usersPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := struct {
+		Nav            portalNav
 		Current        *portalUser
 		Users          []portalUser
 		Token, Message string
-	}{u, users, a.csrf(r), ""}
+	}{newPortalNav(u, a.csrf(r), "users"), u, users, a.csrf(r), ""}
 	if r.URL.Query().Get("created") == "1" {
 		p.Message = "Пользователь создан"
 	}

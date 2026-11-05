@@ -14,6 +14,7 @@ import (
 )
 
 type dashboardPage struct {
+	Nav           portalNav
 	ServerName    string
 	CurrentTime   string
 	Uptime        string
@@ -36,7 +37,7 @@ type dashboardApp struct {
 	schedulePower func(context.Context, string) error
 }
 
-// registerDashboard replaces the old dashboard route without touching Notes or Mortgage.
+// registerDashboard installs the portal home page and server power controls.
 func registerDashboard(auth *portalAuth) {
 	app := &dashboardApp{auth: auth, schedulePower: scheduleServerPower}
 	http.HandleFunc("GET /{$}", app.page)
@@ -80,6 +81,7 @@ func (d *dashboardApp) page(w http.ResponseWriter, r *http.Request) {
 		CPUPercent:  currentCPUUsage(),
 		IsAdmin:     user.IsAdmin,
 		UserName:    user.DisplayName,
+		Nav:         newPortalNav(user, d.auth.csrf(r), "dashboard"),
 	}
 	if page.IsAdmin {
 		page.CSRFToken = d.auth.csrf(r)
@@ -112,7 +114,7 @@ func (d *dashboardApp) page(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tmpl, err := template.ParseFiles("templates/index.html")
+	tmpl, err := template.ParseFiles("templates/index.html", "templates/portal-nav.html")
 	if err != nil {
 		log.Printf("dashboard template parse: %v", err)
 		http.Error(w, "Ошибка загрузки страницы", http.StatusInternalServerError)
@@ -170,7 +172,7 @@ func (d *dashboardApp) power(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl, err := template.ParseFiles("templates/power-result.html")
+	tmpl, err := template.ParseFiles("templates/power-result.html", "templates/portal-nav.html")
 	if err != nil {
 		log.Printf("dashboard power template: %v", err)
 		http.Error(w, "Ошибка загрузки страницы", http.StatusInternalServerError)
@@ -188,7 +190,10 @@ func (d *dashboardApp) power(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
-	if err := tmpl.Execute(w, struct{ Message string }{Message: message}); err != nil {
+	if err := tmpl.Execute(w, struct {
+		Message string
+		Nav     portalNav
+	}{Message: message, Nav: newPortalNav(user, d.auth.csrf(r), "dashboard")}); err != nil {
 		log.Printf("dashboard power result: %v", err)
 	}
 }

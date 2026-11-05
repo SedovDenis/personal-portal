@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Управление пользователями — Personal Portal</title>
     <link rel="stylesheet" href="/static/auth.css">
+    <link rel="stylesheet" href="/static/portal-shell.css?v=1">
     <script src="/static/auth.js" defer></script>
 </head>
-<body class="auth-page">
+<body class="auth-page portal-users-page">
+    {{template "portal-header" .Nav}}
     <main class="auth-panel auth-wide">
-        <a href="/notes">← Заметки</a>
         <h1>Управление пользователями</h1>
         <p class="auth-caption">Создание, редактирование, смена пароля и удаление аккаунтов.</p>
 

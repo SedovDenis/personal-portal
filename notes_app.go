@@ -67,6 +67,7 @@ type notesTemplate struct {
 }
 
 type notesPage struct {
+	Nav              portalNav
 	User             *portalUser
 	Users            []portalUser
 	Draft            *noteDraft
@@ -95,7 +96,7 @@ type notesPage struct {
 func registerNotesApp(db *pgxpool.Pool, auth *portalAuth) {
 	t, err := template.New("notes.html").Funcs(template.FuncMap{
 		"fmtDate": func(v time.Time) string { return v.In(notesMoscow()).Format("02.01.2006 15:04") },
-	}).ParseFiles("templates/notes.html")
+	}).ParseFiles("templates/notes.html", "templates/portal-nav.html")
 	if err != nil {
 		log.Fatalf("notes template: %v", err)
 	}
@@ -318,7 +319,7 @@ func (a *notesApp) index(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, "получение папок", err)
 		return
 	}
-	page := notesPage{User: u, Token: a.auth.csrf(r), Folders: folders, FolderCount: len(folders), Filter: r.URL.Query().Get("filter"), Search: strings.TrimSpace(r.URL.Query().Get("q"))}
+	page := notesPage{User: u, Nav: newPortalNav(u, a.auth.csrf(r), "notes"), Token: a.auth.csrf(r), Folders: folders, FolderCount: len(folders), Filter: r.URL.Query().Get("filter"), Search: strings.TrimSpace(r.URL.Query().Get("q"))}
 	page.Users, err = a.auth.listUsers(ctx, u.ID)
 	if err != nil {
 		a.fail(w, "пользователи", err)

@@ -6,21 +6,11 @@
     <title>Сервер — Personal Portal</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/dashboard.css?v=1">
+    <link rel="stylesheet" href="/static/portal-shell.css?v=1">
     <script src="/static/dashboard.js?v=1" defer></script>
 </head>
 <body class="dashboard-page">
-    <header class="dashboard-header">
-        <nav class="dashboard-nav" aria-label="Разделы портала">
-            <a href="/" class="dashboard-brand">Personal Portal</a>
-            <div class="dashboard-nav-links">
-                <a class="active" href="/">Главная</a>
-                <a href="/notes">Заметки</a>
-                <a href="/mortgage">Ипотека</a>
-                {{if .IsAdmin}}<a href="/auth/users">Пользователи</a>{{end}}
-            </div>
-            <span class="dashboard-user">{{.UserName}}</span>
-        </nav>
-    </header>
+    {{template "portal-header" .Nav}}
 
     <main class="dashboard-main">
         <section class="dashboard-intro">

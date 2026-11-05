@@ -37,7 +37,7 @@ func TestNotesPreview(t *testing.T) {
 func TestNotesTemplateRenders(t *testing.T) {
 	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{
 		"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") },
-	}).ParseFiles("templates/notes.html")
+	}).ParseFiles("templates/notes.html", "templates/portal-nav.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestNotesTemplateRenders(t *testing.T) {
 func TestNotesEditorOpensOnlyOnExplicitAction(t *testing.T) {
 	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{
 		"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") },
-	}).ParseFiles("templates/notes.html")
+	}).ParseFiles("templates/notes.html", "templates/portal-nav.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestNotesEditorOpensOnlyOnExplicitAction(t *testing.T) {
 }
 
 func TestNotesTemplatesRenderWithAccountAndDraft(t *testing.T) {
-	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") }}).ParseFiles("templates/notes.html")
+	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") }}).ParseFiles("templates/notes.html", "templates/portal-nav.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestNotesTemplatesRenderWithAccountAndDraft(t *testing.T) {
 func TestNotesReceivedFolderActions(t *testing.T) {
 	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{
 		"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") },
-	}).ParseFiles("templates/notes.html")
+	}).ParseFiles("templates/notes.html", "templates/portal-nav.html")
 	if err != nil {
 		t.Fatal(err)
 	}

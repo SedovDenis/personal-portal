@@ -1,0 +1,33 @@
+{{define "portal-header"}}
+<header class="portal-shell">
+    <nav class="portal-shell-nav" aria-label="Главная навигация">
+        <a class="portal-shell-brand" href="/">Personal Portal</a>
+
+        <div class="portal-shell-links">
+            <a href="/" {{if eq .Active "dashboard"}}aria-current="page"{{end}}>Главная</a>
+            <a href="/notes" {{if eq .Active "notes"}}aria-current="page"{{end}}>Заметки</a>
+        </div>
+
+        <details class="portal-account">
+            <summary aria-label="Меню аккаунта {{.UserName}}">
+                <span class="portal-avatar" aria-hidden="true">●</span>
+                <span class="portal-account-name">{{.UserName}}</span>
+                <span class="portal-account-arrow" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="portal-account-menu">
+                <div class="portal-account-info">
+                    <strong>{{.UserName}}</strong>
+                    <span>@{{.Username}}</span>
+                </div>
+                {{if .IsAdmin}}
+                <a href="/auth/users" {{if eq .Active "users"}}aria-current="page"{{end}}>Управление пользователями</a>
+                {{end}}
+                <form method="POST" action="/auth/logout">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <button type="submit">Сменить аккаунт</button>
+                </form>
+            </div>
+        </details>
+    </nav>
+</header>
+{{end}}

@@ -6,21 +6,11 @@
     <title>Заметки — Personal Portal</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/notes_app.css">
+    <link rel="stylesheet" href="/static/portal-shell.css?v=1">
     <script src="/static/notes_app.js" defer></script>
 </head>
 <body class="notes-app">
-    <header class="notes-topbar">
-        <a href="/notes" class="notes-logo"><span class="notes-logo-mark">▤</span> Заметки</a>
-        <div class="account-actions">
-            <a href="/" class="notes-home-link">← Personal Portal</a>
-            {{if .User}}{{if .User.IsAdmin}}<a href="/auth/users" class="notes-home-link">Пользователи</a>{{end}}{{end}}
-            {{if .User}}<span class="account-name">{{.User.DisplayName}}</span>{{end}}
-            <form method="post" action="/auth/logout">
-                <input type="hidden" name="csrf_token" value="{{.Token}}">
-                <button type="submit" class="notes-secondary">Сменить аккаунт</button>
-            </form>
-        </div>
-    </header>
+    {{template "portal-header" .Nav}}
 
     <main class="notes-layout">
         <aside class="notes-sidebar">

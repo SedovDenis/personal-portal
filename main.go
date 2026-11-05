@@ -43,20 +43,9 @@ var (
 )
 
 type Note struct {
-	ID        int64
-	Title     string
-	Content   string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type Folder struct {
-	ID         int64
-	Name       string
-	ParendId   *int64
-	IsPublic   bool
-	IsFavorite bool
-	IsShared   bool
+	ID      int64
+	Title   string
+	Content string
 }
 
 func getMemoryUsage() (string, float64, error) {
@@ -257,39 +246,6 @@ func connectDB() (*pgxpool.Pool, error) {
 	}
 
 	return db, nil
-}
-
-func getFolders(ctx context.Context, db *pgxpool.Pool) ([]Folder, error) {
-	rows, err := db.Query(
-		ctx,
-		`SELECT id, name, parent_id, is_public, is_favorite, is_shared
-			FROM folders
-			ORDER BY id DESC`,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	var folders []Folder
-
-	for rows.Next() {
-		var folder Folder
-
-		if err := rows.Scan(&folder.ID, &folder.Name, &folder.ParendId, &folder.IsPublic, &folder.IsFavorite, &folder.IsShared); err != nil {
-			return nil, err
-		}
-
-		folders = append(folders, folder)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return folders, nil
 }
 
 func main() {
