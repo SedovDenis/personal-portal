@@ -25,7 +25,7 @@
     <main class="notes-layout">
         <aside class="notes-sidebar">
             <div class="sidebar-heading">
-                <h2>Мои папки</h2>
+                <h2>Папки</h2>
                 <button type="button" class="icon-button" id="new-folder" title="Создать папку" aria-label="Создать папку">＋</button>
             </div>
 
@@ -39,18 +39,41 @@
             <div class="sidebar-heading sidebar-folder-heading"><h3>Папки</h3><small>{{.FolderCount}}</small></div>
             <nav class="folder-tree" aria-label="Папки">
                 {{range .Folders}}
-                <div class="folder-tree-row folder-depth-{{.Depth}}">
-                    <a href="{{.URL}}" class="folder-tree-link" title="{{.Name}}">▸ <span>{{.Name}}</span></a>
-                    {{if .CanManage}}<button type="button" class="folder-settings" aria-label="Изменить папку {{.Name}}"
+                <div class="folder-tree-row folder-depth-{{.Depth}} {{if not .CanManage}}folder-tree-row--received{{end}}">
+                    <a href="{{.URL}}" class="folder-tree-link" title="{{if .CanManage}}{{.Name}}{{else}}{{.Name}} — от {{.OwnerName}} ({{.OwnerLogin}}){{end}}">
+                        <span class="folder-tree-chevron" aria-hidden="true">▸</span>
+                        <span class="folder-tree-text">
+                            <span class="folder-tree-name">{{.Name}} {{if .IsFavorite}}<span class="folder-tree-star" aria-label="Избранная">★</span>{{end}}</span>
+                            {{if not .CanManage}}
+                            <span class="folder-tree-owner">От {{.OwnerName}} ({{.OwnerLogin}})</span>
+                            {{end}}
+                        </span>
+                    </a>
+                    {{if .CanManage}}
+                    <button type="button" class="folder-settings" aria-label="Изменить папку {{.Name}}"
                         data-folder-id="{{.ID}}" data-folder-name="{{.Name}}" data-folder-parent="{{.ParentValue}}"
-                        data-folder-favorite="{{.IsFavorite}}" data-folder-shared="{{.IsShared}}" data-folder-shared-with="{{.SharedWith}}">⋯</button>{{end}}
+                        data-folder-favorite="{{.IsFavorite}}" data-folder-shared="{{.IsShared}}" data-folder-shared-with="{{.SharedWith}}">⋯</button>
+                    {{else}}
+                    <details class="folder-received-menu">
+                        <summary aria-label="Действия с общей папкой {{.Name}}" title="Действия с общей папкой">⋯</summary>
+                        <div class="folder-received-actions">
+                            <a href="{{.URL}}">Открыть</a>
+                            <form action="/folders/favorite" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{$.Token}}">
+                                <input type="hidden" name="folder_id" value="{{.ID}}">
+                                <input type="hidden" name="action" value="{{if .IsFavorite}}remove{{else}}add{{end}}">
+                                <button type="submit">{{if .IsFavorite}}★ Убрать из избранного{{else}}☆ В избранное{{end}}</button>
+                            </form>
+                        </div>
+                    </details>
+                    {{end}}
                 </div>
                 {{else}}
                 <p class="sidebar-empty">Папок пока нет</p>
                 {{end}}
             </nav>
 
-            <p class="sidebar-help">Избранное и совместный доступ задаются для папок. В совместную папку пригласите нужных пользователей.</p>
+            <p class="sidebar-help">Владелец задаёт совместный доступ. Полученные папки можно добавлять в своё личное избранное.</p>
             {{if .Drafts}}
             <div class="sidebar-heading"><h3>Черновики</h3><small>{{len .Drafts}}</small></div>
             <nav class="draft-nav" aria-label="Черновики">

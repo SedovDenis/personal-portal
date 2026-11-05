@@ -160,3 +160,79 @@
 .notes-app .folder-share-users:disabled { opacity: .65; }
 .notes-app .folder-share-users:disabled .folder-share-user { cursor: not-allowed; }
 @media(max-width:700px){.account-actions{gap:6px}.account-name{display:none}}
+
+/* Received folders: distinct appearance, owner attribution and restricted actions. */
+.notes-app .folder-tree-row--received {
+    background: #f4f0ff;
+    border: 1px solid #e1d7ff;
+    margin: 4px 0;
+    padding-right: 2px;
+}
+.notes-app .folder-tree-row--received:hover { background: #ede7ff; }
+.notes-app .folder-tree-row--received .folder-tree-link { color: #5342a7; }
+.notes-app .folder-tree-row--received .folder-tree-owner {
+    display: block;
+    color: #7c70a6;
+    font-size: 10px;
+    font-weight: 550;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    margin-top: 3px;
+}
+.notes-app .folder-tree-text { display: block; min-width: 0; flex: 1; }
+.notes-app .folder-tree-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-app .folder-tree-chevron { flex: 0 0 auto; align-self: center; }
+.notes-app .folder-tree-star { color: #d99721; font-size: 12px; }
+.notes-app .folder-received-menu { flex: 0 0 auto; position: relative; align-self: center; }
+.notes-app .folder-received-menu summary {
+    display: grid;
+    place-items: center;
+    list-style: none;
+    width: 29px;
+    height: 30px;
+    font-size: 20px;
+    line-height: 1;
+    border-radius: 8px;
+    color: #6f61b2;
+    cursor: pointer;
+}
+.notes-app .folder-received-menu summary::-webkit-details-marker { display: none; }
+.notes-app .folder-received-menu summary:hover,
+.notes-app .folder-received-menu[open] summary { background: #e4dcff; }
+.notes-app .folder-received-menu summary:focus-visible { outline: 2px solid #6d5ce7; outline-offset: 2px; }
+.notes-app .folder-received-actions {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 10;
+    min-width: 185px;
+    padding: 6px;
+    border-radius: 12px;
+    background: white;
+    border: 1px solid #e3ddf5;
+    box-shadow: 0 10px 30px #291f5830;
+}
+.notes-app .folder-received-actions a,
+.notes-app .folder-received-actions button {
+    display: block;
+    width: 100%;
+    padding: 10px 9px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5342a7;
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.notes-app .folder-received-actions a:hover,
+.notes-app .folder-received-actions button:hover { background: #f3efff; }
+.notes-app .folder-received-actions form { margin: 0; }
+@media (max-width: 580px) {
+    .notes-app .folder-tree-row--received { max-width: 100%; width: 100%; }
+    .notes-app .folder-tree-row--received .folder-tree-link { padding: 7px 6px; }
+}

@@ -126,3 +126,38 @@ func TestNotesTemplatesRenderWithAccountAndDraft(t *testing.T) {
 		}
 	}
 }
+
+// A received folder must show its owner and allow only open/favorite actions.
+func TestNotesReceivedFolderActions(t *testing.T) {
+	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{
+		"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") },
+	}).ParseFiles("templates/notes.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := notesPage{Token: "csrf-test", Filter: "all", Folders: []notesFolder{
+		{ID: 1, Name: "Моя папка", CanManage: true, URL: "/notes?folder=1"},
+		{ID: 2, Name: "Отчёты", CanManage: false, OwnerName: "Администратор", OwnerLogin: "admin", IsFavorite: false, URL: "/notes?folder=2"},
+		{ID: 3, Name: "Проекты", CanManage: false, OwnerName: "Коллега", OwnerLogin: "colleague", IsFavorite: true, URL: "/notes?folder=3"},
+	}}
+	var out bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&out, "notes.html", page); err != nil {
+		t.Fatal(err)
+	}
+	markup := out.String()
+	for _, part := range []string{
+		"От Администратор (admin)", "От Коллега (colleague)",
+		`action="/folders/favorite"`, `name="action" value="add"`,
+		`name="action" value="remove"`, "Убрать из избранного", "В избранное",
+	} {
+		if !strings.Contains(markup, part) {
+			t.Errorf("missing %q", part)
+		}
+	}
+	if count := strings.Count(markup, `class="folder-settings"`); count != 1 {
+		t.Errorf("folder edit buttons: %d, want exactly one", count)
+	}
+	if strings.Contains(markup, `data-folder-id="2"`) || strings.Contains(markup, `data-folder-id="3"`) {
+		t.Fatal("shared folder is editable through owner controls")
+	}
+}

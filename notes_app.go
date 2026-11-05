@@ -30,6 +30,8 @@ type notesApp struct {
 type notesFolder struct {
 	ID          int64
 	OwnerID     int64
+	OwnerName   string
+	OwnerLogin  string
 	CanManage   bool
 	SharedWith  string
 	Name        string
@@ -107,6 +109,7 @@ func registerNotesApp(db *pgxpool.Pool, auth *portalAuth) {
 	http.HandleFunc("POST /folders", app.createFolder)
 	http.HandleFunc("POST /folders/update", app.updateFolder)
 	http.HandleFunc("POST /folders/delete", app.deleteFolder)
+	http.HandleFunc("POST /folders/favorite", app.setSharedFolderFavorite)
 	http.HandleFunc("POST /notes/templates", app.createTemplate)
 	http.HandleFunc("POST /notes/templates/update", app.updateTemplate)
 	http.HandleFunc("POST /notes/templates/delete", app.deleteTemplate)
@@ -169,9 +172,16 @@ func notesRedirect(w http.ResponseWriter, r *http.Request, query string) {
 }
 
 func (a *notesApp) getFolders(ctx context.Context, userID int64) ([]notesFolder, error) {
-	rows, err := a.db.Query(ctx, `SELECT f.id, f.name, f.parent_id, f.is_favorite, f.is_shared, f.owner_id,
- COALESCE((SELECT string_agg(s.user_id::text, ',' ORDER BY s.user_id) FROM folder_shares s WHERE s.folder_id=f.id),'')
- FROM folders f WHERE notes_can_access_folder(f.id,$1) ORDER BY lower(f.name), f.id`, userID)
+	rows, err := a.db.Query(ctx, `SELECT f.id, f.name, f.parent_id,
+ CASE WHEN f.owner_id = $1 THEN f.is_favorite ELSE (uf.folder_id IS NOT NULL) END AS viewer_favorite,
+ f.is_shared, f.owner_id,
+ COALESCE((SELECT string_agg(s.user_id::text, ',' ORDER BY s.user_id) FROM folder_shares s WHERE s.folder_id=f.id),''),
+ u.display_name, u.username
+ FROM folders f
+ JOIN portal_users u ON u.id = f.owner_id
+ LEFT JOIN folder_user_favorites uf ON uf.folder_id = f.id AND uf.user_id = $1
+ WHERE notes_can_access_folder(f.id,$1)
+ ORDER BY lower(f.name), f.id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +189,7 @@ func (a *notesApp) getFolders(ctx context.Context, userID int64) ([]notesFolder,
 	all := make([]notesFolder, 0)
 	for rows.Next() {
 		var f notesFolder
-		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.IsFavorite, &f.IsShared, &f.OwnerID, &f.SharedWith); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.IsFavorite, &f.IsShared, &f.OwnerID, &f.SharedWith, &f.OwnerName, &f.OwnerLogin); err != nil {
 			return nil, err
 		}
 		f.CanManage = f.OwnerID == userID
@@ -247,8 +257,10 @@ func notesPreview(s string) string {
 func (a *notesApp) getEntries(ctx context.Context, userID, folderID int64, search, filter string) ([]notesEntry, error) {
 	// Filters are bound parameters; folder filter includes nested folders.
 	query := `SELECT n.id, n.folder_id, f.name, n.title, n.content, n.created_at, n.updated_at,
-              f.is_favorite, f.is_shared
+              CASE WHEN f.owner_id=$4 THEN f.is_favorite ELSE (uf.folder_id IS NOT NULL) END AS viewer_favorite,
+              (f.is_shared OR f.owner_id<>$4) AS viewer_shared
               FROM notes n JOIN folders f ON f.id=n.folder_id
+              LEFT JOIN folder_user_favorites uf ON uf.folder_id=f.id AND uf.user_id=$4
               WHERE notes_can_access_folder(n.folder_id,$4) AND ($1::bigint=0 OR n.folder_id IN (
                   WITH RECURSIVE folder_tree AS (
                       SELECT id FROM folders WHERE id=$1
@@ -257,8 +269,9 @@ func (a *notesApp) getEntries(ctx context.Context, userID, folderID int64, searc
                   ) SELECT id FROM folder_tree
               ))
               AND ($2::text='' OR n.title ILIKE '%'||$2||'%' OR n.content ILIKE '%'||$2||'%')
-              AND ($3::text='all' OR ($3='favorite' AND f.is_favorite) OR
-                   ($3='shared' AND f.is_shared))
+              AND ($3::text='all' OR ($3='favorite' AND
+                   CASE WHEN f.owner_id=$4 THEN f.is_favorite ELSE (uf.folder_id IS NOT NULL) END) OR
+                   ($3='shared' AND (f.is_shared OR f.owner_id<>$4)))
               ORDER BY n.updated_at DESC, n.id DESC`
 	rows, err := a.db.Query(ctx, query, folderID, search, filter, userID)
 	if err != nil {
@@ -586,6 +599,52 @@ func (a *notesApp) deleteFolder(w http.ResponseWriter, r *http.Request) {
 	} // FK is the final safeguard.
 	notesRedirect(w, r, "?ok=folder_removed")
 }
+
+// A shared folder is not owned by its recipient. Favorites are per recipient,
+// and never update the owner's folders.is_favorite flag.
+func (a *notesApp) setSharedFolderFavorite(w http.ResponseWriter, r *http.Request) {
+	if !a.verify(w, r) {
+		return
+	}
+	user := a.auth.userFromRequest(r)
+	if user == nil {
+		http.Error(w, "Требуется вход", http.StatusUnauthorized)
+		return
+	}
+	id, err := notesID(r.FormValue("folder_id"))
+	if err != nil {
+		http.Error(w, "Некорректный ID папки", http.StatusBadRequest)
+		return
+	}
+	if !a.folderExists(r.Context(), id, user.ID) || a.ownsFolder(r.Context(), id, user.ID) {
+		http.Error(w, "Эта операция доступна только для чужих папок, которыми с вами поделились", http.StatusForbidden)
+		return
+	}
+	switch r.FormValue("action") {
+	case "add":
+		// The INSERT itself rechecks access: a stale tab cannot favorite a
+		// folder once the owner has revoked sharing.
+		_, err = a.db.Exec(r.Context(), `INSERT INTO folder_user_favorites (user_id, folder_id)
+			SELECT $1, f.id FROM folders f
+			WHERE f.id=$2 AND f.owner_id<>$1 AND notes_can_access_folder(f.id,$1)
+			ON CONFLICT (user_id, folder_id) DO NOTHING`, user.ID, id)
+	case "remove":
+		_, err = a.db.Exec(r.Context(), `DELETE FROM folder_user_favorites
+			WHERE user_id=$1 AND folder_id=$2 AND EXISTS (
+				SELECT 1 FROM folders f WHERE f.id=$2 AND f.owner_id<>$1
+				AND notes_can_access_folder(f.id,$1)
+			)`, user.ID, id)
+	default:
+		http.Error(w, "Некорректное действие", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		a.fail(w, "избранное совместной папки", err)
+		return
+	}
+	notesRedirect(w, r, "?folder="+strconv.FormatInt(id, 10))
+}
+
 func (a *notesApp) createNote(w http.ResponseWriter, r *http.Request) {
 	if !a.verify(w, r) {
 		return
