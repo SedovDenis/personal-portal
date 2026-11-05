@@ -89,3 +89,27 @@ form[action="/notes"] button:hover,
 form[action="/notes/update"] button:hover {
     background-color: #303fc0;
 }
+
+form[action="/folders"] button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    visibility: visible;
+    opacity: 1;
+
+    margin-top: 16px;
+    padding: 12px 22px;
+
+    background: #4259e9;
+    color: white;
+    border: none;
+    border-radius: 10px;
+
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+form[action="/folders"] button[type="submit"]:hover {
+    background: #303fc0;
+}

@@ -2,95 +2,290 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Notes — Personal Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Заметки — Personal Portal</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/notes_app.css">
+    <script src="/static/notes_app.js" defer></script>
 </head>
-<body>
-    <main class="container">
-        <a href="/">← Dashboard</a>
+<body class="notes-app">
+    <header class="notes-topbar">
+        <a href="/notes" class="notes-logo"><span class="notes-logo-mark">▤</span> Заметки</a>
+        <a href="/" class="notes-home-link">← Personal Portal</a>
+    </header>
 
-        <h1>Notes</h1>
-
-        <form method="POST" action="/notes" class="card">
-            <h2>Новая заметка</h2>
-
-            <p>
-                <input
-                    type="text"
-                    name="title"
-                    placeholder="Заголовок"
-                    required
-                >
-            </p>
-
-            <p>
-                <textarea
-                    name="content"
-                    placeholder="Текст заметки"
-                    rows="5"
-                ></textarea>
-            </p>
-
-            <label for="folder">Папка</label>
-
-            <select id="folder" name="folder_id" required>
-                <option value="">Выберите папку</option>
-
-                {{range .Folders}}
-                    <option value="{{.ID}}">{{.Name}}</option>
-                {{end}}
-            </select>
-
-            <button type="submit">Добавить</button>
-        </form>
-
-        {{range .Notes}}
-            <div class="card">
-                <form method="POST" action="/notes/update">
-                    <input type="hidden" name="id" value="{{.ID}}">
-
-                    <small>Создано: {{.CreatedAt.Format "02.01.2006 15:04"}}</small><br>
-                    <small>Изменено: {{.UpdatedAt.Format "02.01.2006 15:04"}}</small>
-
-                    <p>
-                        <input
-                            type="text"
-                            name="title"
-                            value="{{.Title}}"
-                            required
-                        >
-                    </p>
-
-                    <p>
-                        <textarea
-                            name="content"
-                            rows="5"
-                        >{{.Content}}</textarea>
-                    </p>
-
-                    <button type="submit">Сохранить</button>
-                </form>
-
-                <form method="POST" action="/notes/delete">
-                    <input type="hidden" name="id" value="{{.ID}}">
-                    <button type="submit">Удалить</button>
-                </form>
+    <main class="notes-layout">
+        <aside class="notes-sidebar">
+            <div class="sidebar-heading">
+                <h2>Мои папки</h2>
+                <button type="button" class="icon-button" id="new-folder" title="Создать папку" aria-label="Создать папку">＋</button>
             </div>
-        {{else}}
-            <p>Заметок пока нет.</p>
-        {{end}}
 
-        <section class="folders">
-            <h2>Папки</h2>
+            <nav aria-label="Разделы">
+                <a class="sidebar-link" href="/notes">▤ <span>Все заметки</span></a>
+                <a class="sidebar-link" href="/notes?filter=favorite">☆ <span>Избранные</span></a>
+                <a class="sidebar-link" href="/notes?filter=shared">♧ <span>Совместные</span></a>
+                <a class="sidebar-link {{if .ShowTemplates}}selected{{end}}" href="/notes?view=templates">▧ <span>Шаблоны</span></a>
+            </nav>
 
-            <ul>
+            <div class="sidebar-heading sidebar-folder-heading"><h3>Папки</h3><small>{{.FolderCount}}</small></div>
+            <nav class="folder-tree" aria-label="Папки">
                 {{range .Folders}}
-                    <li>{{.Name}}</li>
+                <div class="folder-tree-row folder-depth-{{.Depth}}">
+                    <a href="{{.URL}}" class="folder-tree-link" title="{{.Name}}">▸ <span>{{.Name}}</span></a>
+                    <button type="button" class="folder-settings" aria-label="Изменить папку {{.Name}}"
+                        data-folder-id="{{.ID}}" data-folder-name="{{.Name}}" data-folder-parent="{{.ParentValue}}"
+                        data-folder-favorite="{{.IsFavorite}}" data-folder-shared="{{.IsShared}}">⋯</button>
+                </div>
                 {{else}}
-                    <li>Папок пока нет</li>
+                <p class="sidebar-empty">Папок пока нет</p>
                 {{end}}
-            </ul>
+            </nav>
+
+            <p class="sidebar-help">Типы заметки определяются папкой. «Совместная» пока является меткой: доступ другим пользователям будет добавлен отдельно.</p>
+        </aside>
+
+        <section class="notes-list-panel">
+            <div class="notes-list-header">
+                {{if .ShowTemplates}}
+                <div><h1>Шаблоны</h1><p>Заготовки для будущих заметок</p></div>
+                <a href="/notes?view=templates&new_template=1" class="notes-primary">＋ Шаблон</a>
+                {{else}}
+                <div><h1>Заметки</h1><p>{{.NoteCount}} в текущем списке</p></div>
+                <a href="/notes?new=1{{if .FolderID}}&folder={{.FolderID}}{{end}}" class="notes-primary">＋ Заметка</a>
+                {{end}}
+            </div>
+
+            {{if .Notice}}<p class="notes-alert success" role="status">{{.Notice}}</p>{{end}}
+            {{if .Error}}<p class="notes-alert error" role="alert">{{.Error}}</p>{{end}}
+
+            {{if .ShowTemplates}}
+            <div class="notes-items">
+                {{range .Templates}}
+                <a class="note-list-item" href="/notes?view=templates&template={{.ID}}">
+                    <span class="note-list-title">▧ {{.Name}}</span>
+                    <span class="note-list-preview">{{.Preview}}</span>
+                    <span class="note-list-meta">Изменён {{fmtDate .UpdatedAt}}</span>
+                </a>
+                {{else}}
+                <p class="notes-empty">Шаблонов пока нет. Создайте, например, «Список покупок».</p>
+                {{end}}
+            </div>
+            {{else}}
+            <form action="/notes" method="GET" class="notes-search-form">
+                <input name="q" type="search" value="{{.Search}}" placeholder="Поиск по заметкам" aria-label="Поиск по заметкам">
+                {{if .FolderID}}<input type="hidden" name="folder" value="{{.FolderID}}">{{end}}
+                {{if ne .Filter "all"}}<input type="hidden" name="filter" value="{{.Filter}}">{{end}}
+                <button type="submit">Найти</button>
+            </form>
+
+            <form id="notes-bulk-form" action="/notes/bulk" method="POST">
+                <input type="hidden" name="csrf_token" value="{{.Token}}">
+                <input type="hidden" name="confirm" value="no" id="bulk-confirm">
+                <div class="bulk-toolbar">
+                    <label class="select-all-label"><input id="select-all-notes" type="checkbox"> Выбрать все</label>
+                    <select name="operation" id="bulk-operation" aria-label="Действие с заметками">
+                        <option value="move">Переместить</option>
+                        <option value="delete">Удалить</option>
+                    </select>
+                    <select name="folder_id" id="bulk-folder" aria-label="Папка назначения">
+                        <option value="">Выберите папку</option>
+                        {{range .Folders}}<option value="{{.ID}}">{{.DisplayName}}</option>{{end}}
+                    </select>
+                    <button type="submit" class="notes-small-button">Применить</button>
+                </div>
+                <div class="notes-items">
+                    {{range .Entries}}
+                    <article class="note-list-item {{if $.Current}}{{if eq $.Current.ID .ID}}selected{{end}}{{end}}">
+                        <label class="note-select"><input type="checkbox" name="ids" value="{{.ID}}" aria-label="Выбрать {{.Title}}"></label>
+                        <a href="/notes?note={{.ID}}" class="note-list-link">
+                            <span class="note-list-title">{{.Title}}</span>
+                            <span class="note-list-preview">{{.Preview}}</span>
+                            <span class="note-list-meta"><span>▱ {{.FolderName}}</span><span>{{fmtDate .UpdatedAt}}</span></span>
+                            <span class="note-badges">
+                                {{if .IsFavorite}}<span class="note-badge favorite">★ Избранная</span>{{end}}
+                                {{if .IsShared}}<span class="note-badge shared">Совместная</span>{{end}}
+                            </span>
+                        </a>
+                    </article>
+                    {{else}}
+                    <p class="notes-empty">Заметок пока нет. Создайте первую в выбранной папке.</p>
+                    {{end}}
+                </div>
+            </form>
+            {{end}}
+        </section>
+
+        <section class="notes-editor-panel" aria-label="Просмотр и редактирование">
+            {{if .ShowTemplates}}
+                {{if .TemplateNew}}
+                    <header class="editor-heading">
+                        <h2>Новый шаблон</h2>
+                        <p>Созданные по шаблону заметки будут независимыми от него.</p>
+                    </header>
+                    <form method="POST" action="/notes/templates" class="rich-note-form">
+                        <input type="hidden" name="csrf_token" value="{{.Token}}">
+                        <label for="template-title">Название шаблона</label>
+                        <input id="template-title" name="name" type="text" maxlength="150" placeholder="Например, Список покупок" required>
+                        <label>Содержимое шаблона</label>
+                        <div class="editor-toolbar" role="toolbar" aria-label="Форматирование"></div>
+                        <div class="rich-editor" contenteditable="true" role="textbox" aria-label="Содержимое шаблона" aria-multiline="true"></div>
+                        <textarea class="rich-content-source" name="content" hidden></textarea>
+                        <div class="editor-actions">
+                            <button type="submit" class="notes-primary">Сохранить шаблон</button>
+                            <a class="notes-secondary" href="/notes?view=templates">Отмена</a>
+                        </div>
+                    </form>
+                {{else if .CurrentTemplate}}
+                    <header class="editor-heading">
+                        <h2>{{if .TemplateEditing}}Редактирование шаблона{{else}}{{.CurrentTemplate.Name}}{{end}}</h2>
+                        <p>Изменения шаблона не затрагивают существующие заметки.</p>
+                    </header>
+                    {{if .TemplateEditing}}
+                        <form method="POST" action="/notes/templates/update" class="rich-note-form">
+                            <input type="hidden" name="csrf_token" value="{{.Token}}">
+                            <input type="hidden" name="id" value="{{.CurrentTemplate.ID}}">
+                            <label for="template-title">Название шаблона</label>
+                            <input id="template-title" name="name" type="text" value="{{.CurrentTemplate.Name}}" maxlength="150" required>
+                            <label>Содержимое шаблона</label>
+                            <div class="editor-toolbar" role="toolbar" aria-label="Форматирование"></div>
+                            <div class="rich-editor" contenteditable="true" role="textbox" aria-label="Содержимое шаблона" aria-multiline="true"></div>
+                            <textarea class="rich-content-source" name="content" hidden>{{.CurrentTemplate.Content}}</textarea>
+                            <div class="editor-actions">
+                                <button type="submit" class="notes-primary">Сохранить шаблон</button>
+                                <a class="notes-secondary" href="/notes?view=templates&template={{.CurrentTemplate.ID}}">Отмена</a>
+                            </div>
+                        </form>
+                    {{else}}
+                        <div class="note-readonly-content" aria-label="Содержимое шаблона"></div>
+                        <textarea class="note-readonly-source" hidden>{{.CurrentTemplate.Content}}</textarea>
+                        <div class="editor-actions">
+                            <a class="notes-primary" href="/notes?view=templates&template={{.CurrentTemplate.ID}}&edit_template=1">Редактировать шаблон</a>
+                        </div>
+                    {{end}}
+                    <form method="POST" action="/notes/from-template" class="template-use-form">
+                        <input type="hidden" name="csrf_token" value="{{.Token}}">
+                        <input type="hidden" name="template_id" value="{{.CurrentTemplate.ID}}">
+                        <label for="template-folder">Создать заметку по шаблону в папке</label>
+                        <select id="template-folder" name="folder_id" required>
+                            <option value="">Выберите папку</option>
+                            {{range .Folders}}<option value="{{.ID}}">{{.DisplayName}}</option>{{end}}
+                        </select>
+                        <button type="submit" class="notes-secondary">Создать заметку из шаблона</button>
+                    </form>
+                    <div class="editor-bottom-actions">
+                        <form method="POST" action="/notes/templates/delete" class="confirm-delete" data-confirm="Удалить этот шаблон? Существующие заметки останутся без изменений.">
+                            <input type="hidden" name="csrf_token" value="{{.Token}}">
+                            <input type="hidden" name="id" value="{{.CurrentTemplate.ID}}">
+                            <input type="hidden" name="confirm" value="yes">
+                            <button type="submit" class="notes-danger">Удалить шаблон</button>
+                        </form>
+                    </div>
+                {{else}}
+                    <div class="editor-placeholder">Выберите шаблон в списке или создайте новый.</div>
+                {{end}}
+            {{else}}
+                {{if .IsNew}}
+                    <header class="editor-heading">
+                        <h2>Новая заметка</h2>
+                        <p>Выберите папку и заполните содержание.</p>
+                    </header>
+                    <form method="POST" action="/notes" class="rich-note-form">
+                        <input type="hidden" name="csrf_token" value="{{.Token}}">
+                        <label for="note-title">Заголовок</label>
+                        <input id="note-title" name="title" type="text" maxlength="200" placeholder="Название заметки" required>
+                        <label for="note-folder">Папка</label>
+                        <select id="note-folder" name="folder_id" required>
+                            <option value="">Выберите папку</option>
+                            {{range .Folders}}
+                            <option value="{{.ID}}" {{if eq $.FolderID .ID}}selected{{end}}>{{.DisplayName}}</option>
+                            {{end}}
+                        </select>
+                        <p class="field-help">Типы заметки наследуются от выбранной папки.</p>
+                        <label>Содержимое</label>
+                        <div class="editor-toolbar" role="toolbar" aria-label="Форматирование"></div>
+                        <div class="rich-editor" contenteditable="true" role="textbox" aria-label="Текст заметки" aria-multiline="true"></div>
+                        <textarea class="rich-content-source" name="content" hidden></textarea>
+                        <div class="editor-actions">
+                            <button class="notes-primary" type="submit">Сохранить заметку</button>
+                            <a class="notes-secondary" href="/notes">Отмена</a>
+                        </div>
+                    </form>
+                {{else if .Current}}
+                    <header class="editor-heading">
+                        <h2>{{if .IsEditing}}Редактирование заметки{{else}}{{.Current.Title}}{{end}}</h2>
+                        <p>Создана {{fmtDate .Current.CreatedAt}} · Изменена {{fmtDate .Current.UpdatedAt}}</p>
+                    </header>
+                    {{if .IsEditing}}
+                        <form method="POST" action="/notes/update" class="rich-note-form">
+                            <input type="hidden" name="csrf_token" value="{{.Token}}">
+                            <input type="hidden" name="id" value="{{.Current.ID}}">
+                            <label for="note-title">Заголовок</label>
+                            <input id="note-title" name="title" type="text" value="{{.Current.Title}}" maxlength="200" required>
+                            <label for="note-folder">Папка</label>
+                            <select id="note-folder" name="folder_id" required>
+                                <option value="">Выберите папку</option>
+                                {{range .Folders}}
+                                <option value="{{.ID}}" {{if eq $.Current.FolderID .ID}}selected{{end}}>{{.DisplayName}}</option>
+                                {{end}}
+                            </select>
+                            <p class="field-help">Типы заметки наследуются от выбранной папки.</p>
+                            <label>Содержимое</label>
+                            <div class="editor-toolbar" role="toolbar" aria-label="Форматирование"></div>
+                            <div class="rich-editor" contenteditable="true" role="textbox" aria-label="Текст заметки" aria-multiline="true"></div>
+                            <textarea class="rich-content-source" name="content" hidden>{{.Current.Content}}</textarea>
+                            <div class="editor-actions">
+                                <button class="notes-primary" type="submit">Сохранить заметку</button>
+                                <a class="notes-secondary" href="/notes?note={{.Current.ID}}">Отмена</a>
+                            </div>
+                        </form>
+                    {{else}}
+                        <p class="note-view-folder">Папка: {{.Current.FolderName}}</p>
+                        <div class="note-readonly-content" aria-label="Содержимое заметки"></div>
+                        <textarea class="note-readonly-source" hidden>{{.Current.Content}}</textarea>
+                        <div class="editor-actions">
+                            <a href="/notes?note={{.Current.ID}}&edit=1" class="notes-primary">Редактировать</a>
+                        </div>
+                    {{end}}
+                    <div class="editor-bottom-actions">
+                        <form method="POST" action="/notes/delete" class="confirm-delete" data-confirm="Удалить заметку «{{.Current.Title}}»? Это действие нельзя отменить.">
+                            <input type="hidden" name="csrf_token" value="{{.Token}}">
+                            <input type="hidden" name="id" value="{{.Current.ID}}">
+                            <input type="hidden" name="confirm" value="yes">
+                            <button class="notes-danger" type="submit">Удалить заметку</button>
+                        </form>
+                    </div>
+                {{else}}
+                    <div class="editor-placeholder">Выберите заметку в списке для просмотра или нажмите «＋ Заметка».</div>
+                {{end}}
+            {{end}}
         </section>
     </main>
+
+    <dialog id="folder-dialog" class="notes-dialog">
+        <form action="/folders" method="POST" id="folder-form">
+            <input type="hidden" name="csrf_token" value="{{.Token}}">
+            <input type="hidden" name="id" id="folder-id">
+            <h2 id="folder-dialog-title">Новая папка</h2>
+            <label for="folder-name">Название</label>
+            <input id="folder-name" name="name" type="text" maxlength="120" required>
+            <label for="folder-parent">Родительская папка</label>
+            <select id="folder-parent" name="parent_id">
+                <option value="">Без родительской папки</option>
+                {{range .Folders}}<option value="{{.ID}}">{{.DisplayName}}</option>{{end}}
+            </select>
+            <fieldset class="folder-flags"><legend>Типы папки (можно несколько)</legend>
+                <label><input id="folder-favorite" type="checkbox" name="is_favorite"> Избранная</label>
+                <label><input id="folder-shared" type="checkbox" name="is_shared"> Совместная</label>
+            </fieldset>
+            <div class="editor-actions"><button class="notes-primary" type="submit">Сохранить</button><button class="notes-secondary" type="button" id="folder-cancel">Отмена</button></div>
+        </form>
+        <form action="/folders/delete" method="POST" id="folder-delete-form" class="confirm-delete" data-confirm="Удалить пустую папку? Если в ней есть заметки или вложенные папки, удаление будет запрещено.">
+            <input type="hidden" name="csrf_token" value="{{.Token}}">
+            <input type="hidden" name="id" id="folder-delete-id">
+            <input type="hidden" name="confirm" value="yes">
+            <button type="submit" class="notes-danger">Удалить папку</button>
+        </form>
+    </dialog>
 </body>
 </html>
