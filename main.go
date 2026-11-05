@@ -303,7 +303,8 @@ func main() {
 	log.Println("PostgreSQL connected")
 
 	go monitorCPU()
-	registerNotesApp(db)
+	auth := registerPortalAuth(db)
+	registerNotesApp(db, auth)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		tmpl, err := template.ParseFiles("templates/index.html")
@@ -411,7 +412,7 @@ func main() {
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
-	if err := http.ListenAndServe("127.0.0.1:8080", nil); err != nil {
+	if err := http.ListenAndServe("127.0.0.1:8080", auth.middleware(http.DefaultServeMux)); err != nil {
 		log.Fatalf("HTTP server error: %v", err)
 	}
 }

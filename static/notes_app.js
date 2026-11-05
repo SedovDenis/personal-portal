@@ -120,16 +120,115 @@
                 }
                 else document.execCommand(command);
                 saveRange();
+                editor.dispatchEvent(new Event('input', {bubbles:true}));
             });
             toolbar.appendChild(button);
         }
-        form.addEventListener('submit', () => {
-            // input.checked and the checked attribute differ after clicking a checkbox.
+        function snapshot() {
+            // Persist state of checkboxes and radio buttons in the HTML fragment.
             for (const input of editor.querySelectorAll('input[type="checkbox"],input[type="radio"]')) {
                 if (input.checked) input.setAttribute('checked', '');
                 else input.removeAttribute('checked');
             }
-            source.value = cleanFragment(editor.innerHTML).innerHTML;
+            return cleanFragment(editor.innerHTML).innerHTML;
+        }
+        const status = form.querySelector('.draft-status');
+        const kind = form.dataset.draftKind;
+        const targetID = form.dataset.draftId;
+        let saveTimer;
+        let changed = false;
+        let saving = false;
+        let pending = false;
+        let publishing = false;
+        let activeSave = null;
+        async function saveDraft() {
+            if (publishing || !changed || saving || !kind) {if (saving && !publishing) pending = true;return;}
+            changed = false;
+            saving = true;
+            status && (status.textContent = 'Сохраняем черновик…');
+            const fields = new URLSearchParams();
+            fields.set('csrf_token', form.querySelector('[name="csrf_token"]').value);
+            fields.set('kind', kind);
+            fields.set('target_id', targetID);
+            fields.set('title', (form.querySelector('[name="title"], [name="name"]') || {}).value || '');
+            fields.set('folder_id', (form.querySelector('[name="folder_id"]') || {}).value || '');
+            fields.set('content', snapshot());
+            try {
+                activeSave = fetch('/notes/drafts', {
+                    method:'POST', credentials:'same-origin',
+                    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fields.toString()
+                });
+                const response = await activeSave;
+                if (!response.ok) throw new Error(String(response.status));
+                status && (status.textContent = 'Черновик сохранён');
+            } catch (_) {
+                changed = true;
+                status && (status.textContent = 'Не удалось сохранить черновик. Проверьте соединение.');
+            } finally {
+                saving = false;
+                activeSave = null;
+                if (!publishing && (pending || changed)) {
+                    pending = false;
+                    clearTimeout(saveTimer);
+                    saveTimer = setTimeout(saveDraft, 1500);
+                }
+            }
+        }
+        function scheduleDraft() {
+            changed = true;
+            if (status) status.textContent = 'Есть несохранённые изменения';
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveDraft, 900);
+        }
+        editor.addEventListener('input', scheduleDraft);
+        editor.addEventListener('change', scheduleDraft);
+        form.querySelectorAll('[name="title"], [name="name"], [name="folder_id"]').forEach(el => {
+            el.addEventListener('input', scheduleDraft);
+            el.addEventListener('change', scheduleDraft);
+        });
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (publishing) return;
+            clearTimeout(saveTimer);
+            publishing = true;
+            // Wait for an earlier autosave, then persist the final version BEFORE publishing.
+            // This protects the user's text even when a shared note causes a version conflict.
+            if (activeSave) {
+                try { await activeSave; } catch (_) { /* Try once more with the latest text. */ }
+            }
+            const fields = new URLSearchParams();
+            fields.set('csrf_token', form.querySelector('[name="csrf_token"]').value);
+            fields.set('kind', kind);
+            fields.set('target_id', targetID);
+            fields.set('title', (form.querySelector('[name="title"], [name="name"]') || {}).value || '');
+            fields.set('folder_id', (form.querySelector('[name="folder_id"]') || {}).value || '');
+            source.value = snapshot();
+            fields.set('content', source.value);
+            try {
+                const response = await fetch('/notes/drafts', {
+                    method:'POST', credentials:'same-origin',
+                    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body:fields.toString()
+                });
+                if (!response.ok) throw new Error(String(response.status));
+                changed = false;
+                form.submit();
+            } catch (_) {
+                publishing = false;
+                changed = true;
+                if (status) status.textContent = 'Черновик не сохранился. Проверьте соединение и повторите сохранение.';
+            }
+        });
+        window.addEventListener('pagehide', () => {
+            if (publishing || !changed || !navigator.sendBeacon) return;
+            const fields = new URLSearchParams();
+            fields.set('csrf_token', form.querySelector('[name="csrf_token"]').value);
+            fields.set('kind', kind);
+            fields.set('target_id', targetID);
+            fields.set('title', (form.querySelector('[name="title"], [name="name"]') || {}).value || '');
+            fields.set('folder_id', (form.querySelector('[name="folder_id"]') || {}).value || '');
+            fields.set('content', snapshot());
+            navigator.sendBeacon('/notes/drafts', new Blob([fields.toString()], {type:'application/x-www-form-urlencoded'}));
         });
     }
     document.querySelectorAll('.rich-note-form').forEach(prepareEditor);
@@ -154,11 +253,13 @@
         const parent = document.getElementById('folder-parent');
         const favoriteFlag = document.getElementById('folder-favorite');
         const sharedFlag = document.getElementById('folder-shared');
+        const shareUsers = document.getElementById('folder-share-users');
         const open = () => typeof dialog.showModal === 'function' ? dialog.showModal() : dialog.setAttribute('open', '');
         document.getElementById('new-folder')?.addEventListener('click', () => {
             folderForm.action = '/folders';
             document.getElementById('folder-dialog-title').textContent = 'Новая папка';
             folderForm.reset(); id.value = ''; folderDelete.hidden = true;
+            for (const option of shareUsers.options) option.selected = false;
             for (const option of parent.options) option.hidden = false;
             open(); name.focus();
         });
@@ -171,6 +272,8 @@
                 parent.value = button.dataset.folderParent || '';
                 favoriteFlag.checked = button.dataset.folderFavorite === 'true';
                 sharedFlag.checked = button.dataset.folderShared === 'true';
+                const selected = new Set((button.dataset.folderSharedWith || '').split(','));
+                for (const option of shareUsers.options) option.selected = selected.has(option.value);
                 for (const option of parent.options) option.hidden = option.value === id.value;
                 document.getElementById('folder-delete-id').value = id.value;
                 folderDelete.hidden = false;

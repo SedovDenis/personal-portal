@@ -103,3 +103,26 @@ func TestNotesEditorOpensOnlyOnExplicitAction(t *testing.T) {
 		})
 	}
 }
+
+func TestNotesTemplatesRenderWithAccountAndDraft(t *testing.T) {
+	tmpl, err := template.New("notes.html").Funcs(template.FuncMap{"fmtDate": func(v time.Time) string { return v.Format("02.01.2006 15:04") }}).ParseFiles("templates/notes.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []notesPage{
+		{User: &portalUser{ID: 1, DisplayName: "Первый пользователь", IsAdmin: true}, Token: "csrf", Draft: &noteDraft{Title: "Черновик", Content: "<p>Текст</p>"}, IsNew: true},
+		{User: &portalUser{ID: 2, DisplayName: "Второй пользователь"}, Token: "csrf", ShowTemplates: true, TemplateNew: true, Draft: &noteDraft{Title: "Шаблон", Content: "<p>Список</p>"}},
+	}
+	for _, p := range cases {
+		var b bytes.Buffer
+		if err := tmpl.Execute(&b, p); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(b.String(), "data-draft-kind=") || !strings.Contains(b.String(), "Черновик") && p.IsNew {
+			t.Fatal("draft form not rendered")
+		}
+		if strings.Contains(b.String(), "Публичные") {
+			t.Fatal("public filter reappeared")
+		}
+	}
+}

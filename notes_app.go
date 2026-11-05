@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
@@ -17,19 +15,23 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Notes module: the old /notes handlers may stay in main.go temporarily.
 // Method-specific patterns take precedence over their legacy methodless routes (Go 1.22+).
 type notesApp struct {
-	db    *pgxpool.Pool
-	token string
-	tmpl  *template.Template
+	db   *pgxpool.Pool
+	auth *portalAuth
+	tmpl *template.Template
 }
 
 type notesFolder struct {
 	ID          int64
+	OwnerID     int64
+	CanManage   bool
+	SharedWith  string
 	Name        string
 	ParentID    *int64
 	ParentValue string
@@ -63,38 +65,39 @@ type notesTemplate struct {
 }
 
 type notesPage struct {
-	Token           string
-	Folders         []notesFolder
-	Entries         []notesEntry
-	Templates       []notesTemplate
-	Current         *notesEntry
-	CurrentTemplate *notesTemplate
-	IsNew           bool
-	IsEditing       bool
-	TemplateEditing bool
-	TemplateNew     bool
-	ShowTemplates   bool
-	FolderID        int64
-	Search          string
-	Filter          string
-	Error           string
-	Notice          string
-	NoteCount       int
-	FolderCount     int
+	User             *portalUser
+	Users            []portalUser
+	Draft            *noteDraft
+	Drafts           []noteDraft
+	Token            string
+	Folders          []notesFolder
+	Entries          []notesEntry
+	Templates        []notesTemplate
+	Current          *notesEntry
+	CurrentTemplate  *notesTemplate
+	IsNew            bool
+	IsEditing        bool
+	TemplateEditing  bool
+	TemplateNew      bool
+	ShowTemplates    bool
+	FolderID         int64
+	SelectedFolderID int64
+	Search           string
+	Filter           string
+	Error            string
+	Notice           string
+	NoteCount        int
+	FolderCount      int
 }
 
-func registerNotesApp(db *pgxpool.Pool) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		log.Fatalf("notes csrf: %v", err)
-	}
+func registerNotesApp(db *pgxpool.Pool, auth *portalAuth) {
 	t, err := template.New("notes.html").Funcs(template.FuncMap{
 		"fmtDate": func(v time.Time) string { return v.In(notesMoscow()).Format("02.01.2006 15:04") },
 	}).ParseFiles("templates/notes.html")
 	if err != nil {
 		log.Fatalf("notes template: %v", err)
 	}
-	app := &notesApp{db: db, token: base64.RawURLEncoding.EncodeToString(bytes), tmpl: t}
+	app := &notesApp{db: db, auth: auth, tmpl: t}
 
 	http.HandleFunc("GET /notes", app.index)
 	http.HandleFunc("POST /notes", app.createNote)
@@ -108,6 +111,8 @@ func registerNotesApp(db *pgxpool.Pool) {
 	http.HandleFunc("POST /notes/templates/update", app.updateTemplate)
 	http.HandleFunc("POST /notes/templates/delete", app.deleteTemplate)
 	http.HandleFunc("POST /notes/from-template", app.fromTemplate)
+	http.HandleFunc("POST /notes/drafts", app.saveDraft)
+	http.HandleFunc("POST /notes/drafts/discard", app.discardDraft)
 }
 
 func notesMoscow() *time.Location {
@@ -124,7 +129,7 @@ func (a *notesApp) verify(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "Неправильные данные формы", http.StatusBadRequest)
 		return false
 	}
-	if r.PostForm.Get("csrf_token") != a.token {
+	if !a.auth.verifyCSRF(r, r.PostForm.Get("csrf_token")) {
 		http.Error(w, "Страница устарела. Обновите её и повторите действие.", http.StatusForbidden)
 		return false
 	}
@@ -163,8 +168,10 @@ func notesRedirect(w http.ResponseWriter, r *http.Request, query string) {
 	http.Redirect(w, r, "/notes"+query, http.StatusSeeOther)
 }
 
-func (a *notesApp) getFolders(ctx context.Context) ([]notesFolder, error) {
-	rows, err := a.db.Query(ctx, `SELECT id, name, parent_id, is_favorite, is_shared FROM folders ORDER BY lower(name), id`)
+func (a *notesApp) getFolders(ctx context.Context, userID int64) ([]notesFolder, error) {
+	rows, err := a.db.Query(ctx, `SELECT f.id, f.name, f.parent_id, f.is_favorite, f.is_shared, f.owner_id,
+ COALESCE((SELECT string_agg(s.user_id::text, ',' ORDER BY s.user_id) FROM folder_shares s WHERE s.folder_id=f.id),'')
+ FROM folders f WHERE notes_can_access_folder(f.id,$1) ORDER BY lower(f.name), f.id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -172,9 +179,10 @@ func (a *notesApp) getFolders(ctx context.Context) ([]notesFolder, error) {
 	all := make([]notesFolder, 0)
 	for rows.Next() {
 		var f notesFolder
-		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.IsFavorite, &f.IsShared); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.IsFavorite, &f.IsShared, &f.OwnerID, &f.SharedWith); err != nil {
 			return nil, err
 		}
+		f.CanManage = f.OwnerID == userID
 		if f.ParentID != nil {
 			f.ParentValue = strconv.FormatInt(*f.ParentID, 10)
 		}
@@ -236,12 +244,12 @@ func notesPreview(s string) string {
 	return s
 }
 
-func (a *notesApp) getEntries(ctx context.Context, folderID int64, search, filter string) ([]notesEntry, error) {
+func (a *notesApp) getEntries(ctx context.Context, userID, folderID int64, search, filter string) ([]notesEntry, error) {
 	// Filters are bound parameters; folder filter includes nested folders.
 	query := `SELECT n.id, n.folder_id, f.name, n.title, n.content, n.created_at, n.updated_at,
               f.is_favorite, f.is_shared
               FROM notes n JOIN folders f ON f.id=n.folder_id
-              WHERE ($1::bigint=0 OR n.folder_id IN (
+              WHERE notes_can_access_folder(n.folder_id,$4) AND ($1::bigint=0 OR n.folder_id IN (
                   WITH RECURSIVE folder_tree AS (
                       SELECT id FROM folders WHERE id=$1
                       UNION
@@ -252,7 +260,7 @@ func (a *notesApp) getEntries(ctx context.Context, folderID int64, search, filte
               AND ($3::text='all' OR ($3='favorite' AND f.is_favorite) OR
                    ($3='shared' AND f.is_shared))
               ORDER BY n.updated_at DESC, n.id DESC`
-	rows, err := a.db.Query(ctx, query, folderID, search, filter)
+	rows, err := a.db.Query(ctx, query, folderID, search, filter, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +276,8 @@ func (a *notesApp) getEntries(ctx context.Context, folderID int64, search, filte
 	}
 	return notes, rows.Err()
 }
-func (a *notesApp) getTemplates(ctx context.Context) ([]notesTemplate, error) {
-	rows, err := a.db.Query(ctx, `SELECT id, name, content, created_at, updated_at FROM note_templates ORDER BY lower(name), id`)
+func (a *notesApp) getTemplates(ctx context.Context, userID int64) ([]notesTemplate, error) {
+	rows, err := a.db.Query(ctx, `SELECT id, name, content, created_at, updated_at FROM note_templates WHERE owner_id=$1 ORDER BY lower(name), id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -287,12 +295,27 @@ func (a *notesApp) getTemplates(ctx context.Context) ([]notesTemplate, error) {
 }
 func (a *notesApp) index(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	folders, err := a.getFolders(ctx)
+	u := a.auth.userFromRequest(r)
+	if u == nil {
+		http.Error(w, "Требуется вход", 401)
+		return
+	}
+	folders, err := a.getFolders(ctx, u.ID)
 	if err != nil {
 		a.fail(w, "получение папок", err)
 		return
 	}
-	page := notesPage{Token: a.token, Folders: folders, FolderCount: len(folders), Filter: r.URL.Query().Get("filter"), Search: strings.TrimSpace(r.URL.Query().Get("q"))}
+	page := notesPage{User: u, Token: a.auth.csrf(r), Folders: folders, FolderCount: len(folders), Filter: r.URL.Query().Get("filter"), Search: strings.TrimSpace(r.URL.Query().Get("q"))}
+	page.Users, err = a.auth.listUsers(ctx, u.ID)
+	if err != nil {
+		a.fail(w, "пользователи", err)
+		return
+	}
+	page.Drafts, err = a.getDrafts(ctx, u.ID)
+	if err != nil {
+		a.fail(w, "черновики", err)
+		return
+	}
 	if page.Filter != "favorite" && page.Filter != "shared" {
 		page.Filter = "all"
 	}
@@ -311,7 +334,7 @@ func (a *notesApp) index(w http.ResponseWriter, r *http.Request) {
 	page.Notice = map[string]string{"folder_saved": "Папка сохранена", "folder_removed": "Папка удалена", "note_saved": "Заметка сохранена", "note_removed": "Заметки удалены", "template_saved": "Шаблон сохранён", "template_removed": "Шаблон удалён", "note_moved": "Заметки перемещены"}[r.URL.Query().Get("ok")]
 	page.Error = map[string]string{"folder_not_empty": "Сначала переместите или удалите все заметки и вложенные папки", "folder_cycle": "Нельзя перемещать папку внутрь самой себя", "folder_invalid": "Родительская папка не найдена", "note_not_found": "Заметка не найдена", "select_notes": "Выберите хотя бы одну заметку", "folder_required": "Сначала создайте папку"}[r.URL.Query().Get("error")]
 	if page.ShowTemplates {
-		page.Templates, err = a.getTemplates(ctx)
+		page.Templates, err = a.getTemplates(ctx, u.ID)
 		if err != nil {
 			a.fail(w, "получение шаблонов", err)
 			return
@@ -331,7 +354,7 @@ func (a *notesApp) index(w http.ResponseWriter, r *http.Request) {
 		}
 		page.TemplateEditing = page.CurrentTemplate != nil && r.URL.Query().Get("edit_template") == "1"
 	} else {
-		page.Entries, err = a.getEntries(ctx, page.FolderID, page.Search, page.Filter)
+		page.Entries, err = a.getEntries(ctx, u.ID, page.FolderID, page.Search, page.Filter)
 		if err != nil {
 			a.fail(w, "получение заметок", err)
 			return
@@ -358,6 +381,32 @@ func (a *notesApp) index(w http.ResponseWriter, r *http.Request) {
 			page.FolderID = folders[0].ID
 		}
 	}
+	if page.TemplateNew || page.TemplateEditing || page.IsNew || page.IsEditing {
+		kind := "note"
+		targetID := int64(0)
+		if page.ShowTemplates {
+			kind = "template"
+			if page.CurrentTemplate != nil {
+				targetID = page.CurrentTemplate.ID
+			}
+		}
+		if !page.ShowTemplates && page.Current != nil {
+			targetID = page.Current.ID
+		}
+		draft, derr := a.getDraft(ctx, u.ID, kind, targetID)
+		if derr != nil {
+			a.fail(w, "чтение черновика", derr)
+			return
+		}
+		page.Draft = draft
+	}
+	page.SelectedFolderID = page.FolderID
+	if page.Current != nil {
+		page.SelectedFolderID = page.Current.FolderID
+	}
+	if page.Draft != nil && page.Draft.FolderID != nil {
+		page.SelectedFolderID = *page.Draft.FolderID
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "same-origin")
@@ -369,9 +418,17 @@ func (a *notesApp) fail(w http.ResponseWriter, operation string, err error) {
 	log.Printf("notes: %s: %v", operation, err)
 	http.Error(w, "Ошибка раздела заметок", http.StatusInternalServerError)
 }
-func (a *notesApp) folderExists(ctx context.Context, id int64) bool {
+func (a *notesApp) folderExists(ctx context.Context, id, userID int64) bool {
+	var ok bool
+	return a.db.QueryRow(ctx, `SELECT notes_can_access_folder($1,$2)`, id, userID).Scan(&ok) == nil && ok
+}
+func (a *notesApp) ownsFolder(ctx context.Context, id, userID int64) bool {
 	var check int64
-	return a.db.QueryRow(ctx, `SELECT id FROM folders WHERE id=$1`, id).Scan(&check) == nil
+	return a.db.QueryRow(ctx, `SELECT id FROM folders WHERE id=$1 AND owner_id=$2`, id, userID).Scan(&check) == nil
+}
+func (a *notesApp) canEditNote(ctx context.Context, id, userID int64) bool {
+	var ok bool
+	return a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM notes WHERE id=$1 AND notes_can_access_folder(folder_id,$2))`, id, userID).Scan(&ok) == nil && ok
 }
 func (a *notesApp) createFolder(w http.ResponseWriter, r *http.Request) {
 	if !a.verify(w, r) {
@@ -387,13 +444,33 @@ func (a *notesApp) createFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный ID родителя", 400)
 		return
 	}
-	if parent != nil && !a.folderExists(r.Context(), *parent) {
+	if parent != nil && !a.ownsFolder(r.Context(), *parent, a.auth.userFromRequest(r).ID) {
 		notesRedirect(w, r, "?error=folder_invalid")
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `INSERT INTO folders (name,parent_id,is_favorite,is_shared) VALUES ($1,$2,$3,$4)`, name, parent, notesFlag(r, "is_favorite"), notesFlag(r, "is_shared"))
+	recipients, err := a.shareIDs(r)
+	if err != nil {
+		http.Error(w, "Неверные пользователи", 400)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		a.fail(w, "транзакция папки", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var id int64
+	err = tx.QueryRow(r.Context(), `INSERT INTO folders (name,parent_id,is_favorite,is_shared,owner_id) VALUES ($1,$2,$3,$4,$5) RETURNING id`, name, parent, notesFlag(r, "is_favorite"), notesFlag(r, "is_shared"), a.auth.userFromRequest(r).ID).Scan(&id)
 	if err != nil {
 		a.fail(w, "создание папки", err)
+		return
+	}
+	if err = a.replaceShares(r.Context(), tx, id, recipients); err != nil {
+		a.fail(w, "участники папки", err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		a.fail(w, "сохранение папки", err)
 		return
 	}
 	notesRedirect(w, r, "?ok=folder_saved")
@@ -423,12 +500,16 @@ func (a *notesApp) updateFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверное название", 400)
 		return
 	}
+	if !a.ownsFolder(r.Context(), id, a.auth.userFromRequest(r).ID) {
+		http.Error(w, "Нет доступа к папке", 403)
+		return
+	}
 	parent, err := notesOptionalID(r.FormValue("parent_id"))
 	if err != nil {
 		http.Error(w, "Неверный родитель", 400)
 		return
 	}
-	if parent != nil && !a.folderExists(r.Context(), *parent) {
+	if parent != nil && !a.ownsFolder(r.Context(), *parent, a.auth.userFromRequest(r).ID) {
 		notesRedirect(w, r, "?error=folder_invalid")
 		return
 	}
@@ -441,13 +522,32 @@ func (a *notesApp) updateFolder(w http.ResponseWriter, r *http.Request) {
 		notesRedirect(w, r, "?error=folder_cycle")
 		return
 	}
-	result, err := a.db.Exec(r.Context(), `UPDATE folders SET name=$1,parent_id=$2,is_favorite=$3,is_shared=$4,updated_at=NOW() WHERE id=$5`, name, parent, notesFlag(r, "is_favorite"), notesFlag(r, "is_shared"), id)
+	recipients, err := a.shareIDs(r)
+	if err != nil {
+		http.Error(w, "Неверные пользователи", 400)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		a.fail(w, "транзакция папки", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	result, err := tx.Exec(r.Context(), `UPDATE folders SET name=$1,parent_id=$2,is_favorite=$3,is_shared=$4,updated_at=NOW() WHERE id=$5 AND owner_id=$6`, name, parent, notesFlag(r, "is_favorite"), notesFlag(r, "is_shared"), id, a.auth.userFromRequest(r).ID)
 	if err != nil {
 		a.fail(w, "изменение папки", err)
 		return
 	}
 	if result.RowsAffected() == 0 {
 		http.Error(w, "Папка не найдена", 404)
+		return
+	}
+	if err = a.replaceShares(r.Context(), tx, id, recipients); err != nil {
+		a.fail(w, "участники папки", err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		a.fail(w, "сохранение папки", err)
 		return
 	}
 	notesRedirect(w, r, "?ok=folder_saved")
@@ -465,6 +565,10 @@ func (a *notesApp) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный ID", 400)
 		return
 	}
+	if !a.ownsFolder(r.Context(), id, a.auth.userFromRequest(r).ID) {
+		http.Error(w, "Нет доступа к папке", 403)
+		return
+	}
 	var n int
 	err = a.db.QueryRow(r.Context(), `SELECT (SELECT count(*) FROM notes WHERE folder_id=$1)+(SELECT count(*) FROM folders WHERE parent_id=$1)`, id).Scan(&n)
 	if err != nil {
@@ -475,7 +579,7 @@ func (a *notesApp) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		notesRedirect(w, r, "?error=folder_not_empty")
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `DELETE FROM folders WHERE id=$1`, id)
+	_, err = a.db.Exec(r.Context(), `DELETE FROM folders WHERE id=$1 AND owner_id=$2`, id, a.auth.userFromRequest(r).ID)
 	if err != nil {
 		notesRedirect(w, r, "?error=folder_not_empty")
 		return
@@ -492,7 +596,7 @@ func (a *notesApp) createNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folderID, err := notesID(r.FormValue("folder_id"))
-	if err != nil || !a.folderExists(r.Context(), folderID) {
+	if err != nil || !a.folderExists(r.Context(), folderID, a.auth.userFromRequest(r).ID) {
 		http.Error(w, "Выберите существующую папку", 400)
 		return
 	}
@@ -507,6 +611,7 @@ func (a *notesApp) createNote(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, "создание заметки", err)
 		return
 	}
+	a.clearDraft(r.Context(), a.auth.userFromRequest(r).ID, "note", 0)
 	notesRedirect(w, r, "?note="+strconv.FormatInt(id, 10)+"&ok=note_saved")
 }
 func (a *notesApp) updateNote(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +629,7 @@ func (a *notesApp) updateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folderID, err := notesID(r.FormValue("folder_id"))
-	if err != nil || !a.folderExists(r.Context(), folderID) {
+	if err != nil || !a.folderExists(r.Context(), folderID, a.auth.userFromRequest(r).ID) {
 		http.Error(w, "Выберите существующую папку", 400)
 		return
 	}
@@ -533,15 +638,21 @@ func (a *notesApp) updateNote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Заметка слишком большая", 400)
 		return
 	}
-	result, err := a.db.Exec(r.Context(), `UPDATE notes SET title=$1,content=$2,folder_id=$3,updated_at=NOW() WHERE id=$4`, title, content, folderID, id)
+	original, err := time.Parse(time.RFC3339Nano, r.FormValue("original_updated_at"))
+	if err != nil {
+		http.Error(w, "Некорректная версия заметки", 400)
+		return
+	}
+	result, err := a.db.Exec(r.Context(), `UPDATE notes SET title=$1,content=$2,folder_id=$3,updated_at=NOW() WHERE id=$4 AND notes_can_access_folder(folder_id,$5) AND updated_at=$6`, title, content, folderID, id, a.auth.userFromRequest(r).ID, original)
 	if err != nil {
 		a.fail(w, "обновление заметки", err)
 		return
 	}
 	if result.RowsAffected() == 0 {
-		http.Error(w, "Заметка не найдена", 404)
+		http.Error(w, "Заметка была изменена или недоступна. Ваш черновик сохранён; обновите страницу перед повторным сохранением.", http.StatusConflict)
 		return
 	}
+	a.clearDraft(r.Context(), a.auth.userFromRequest(r).ID, "note", id)
 	notesRedirect(w, r, "?note="+strconv.FormatInt(id, 10)+"&ok=note_saved")
 }
 func (a *notesApp) deleteNote(w http.ResponseWriter, r *http.Request) {
@@ -557,7 +668,7 @@ func (a *notesApp) deleteNote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный ID", 400)
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `DELETE FROM notes WHERE id=$1`, id)
+	_, err = a.db.Exec(r.Context(), `DELETE FROM notes WHERE id=$1 AND notes_can_access_folder(folder_id,$2)`, id, a.auth.userFromRequest(r).ID)
 	if err != nil {
 		a.fail(w, "удаление заметки", err)
 		return
@@ -594,13 +705,23 @@ func (a *notesApp) bulkNotes(w http.ResponseWriter, r *http.Request) {
 		notesRedirect(w, r, "?error=select_notes")
 		return
 	}
+	var accessible int
+	err = a.db.QueryRow(r.Context(), `SELECT count(*) FROM notes WHERE id=ANY($1::bigint[]) AND notes_can_access_folder(folder_id,$2)`, ids, a.auth.userFromRequest(r).ID).Scan(&accessible)
+	if err != nil {
+		a.fail(w, "проверка выделенных заметок", err)
+		return
+	}
+	if accessible != len(ids) {
+		http.Error(w, "Часть заметок недоступна", 403)
+		return
+	}
 	switch r.FormValue("operation") {
 	case "delete":
 		if r.FormValue("confirm") != "yes" {
 			http.Error(w, "Не подтверждено удаление", 400)
 			return
 		}
-		_, err = a.db.Exec(r.Context(), `DELETE FROM notes WHERE id=ANY($1::bigint[])`, ids)
+		_, err = a.db.Exec(r.Context(), `DELETE FROM notes WHERE id=ANY($1::bigint[]) AND notes_can_access_folder(folder_id,$2)`, ids, a.auth.userFromRequest(r).ID)
 		if err != nil {
 			a.fail(w, "массовое удаление", err)
 			return
@@ -608,11 +729,11 @@ func (a *notesApp) bulkNotes(w http.ResponseWriter, r *http.Request) {
 		notesRedirect(w, r, "?ok=note_removed")
 	case "move":
 		folder, err := notesID(r.FormValue("folder_id"))
-		if err != nil || !a.folderExists(r.Context(), folder) {
+		if err != nil || !a.folderExists(r.Context(), folder, a.auth.userFromRequest(r).ID) {
 			http.Error(w, "Выберите папку", 400)
 			return
 		}
-		_, err = a.db.Exec(r.Context(), `UPDATE notes SET folder_id=$1,updated_at=NOW() WHERE id=ANY($2::bigint[])`, folder, ids)
+		_, err = a.db.Exec(r.Context(), `UPDATE notes SET folder_id=$1,updated_at=NOW() WHERE id=ANY($2::bigint[]) AND notes_can_access_folder(folder_id,$3)`, folder, ids, a.auth.userFromRequest(r).ID)
 		if err != nil {
 			a.fail(w, "перемещение заметок", err)
 			return
@@ -637,11 +758,12 @@ func (a *notesApp) createTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	err = a.db.QueryRow(r.Context(), `INSERT INTO note_templates(name,content) VALUES($1,$2) RETURNING id`, name, content).Scan(&id)
+	err = a.db.QueryRow(r.Context(), `INSERT INTO note_templates(name,content,owner_id) VALUES($1,$2,$3) RETURNING id`, name, content, a.auth.userFromRequest(r).ID).Scan(&id)
 	if err != nil {
 		a.fail(w, "создание шаблона", err)
 		return
 	}
+	a.clearDraft(r.Context(), a.auth.userFromRequest(r).ID, "template", 0)
 	notesRedirect(w, r, "?view=templates&template="+strconv.FormatInt(id, 10)+"&ok=template_saved")
 }
 func (a *notesApp) updateTemplate(w http.ResponseWriter, r *http.Request) {
@@ -663,15 +785,21 @@ func (a *notesApp) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Шаблон слишком большой", 400)
 		return
 	}
-	result, err := a.db.Exec(r.Context(), `UPDATE note_templates SET name=$1,content=$2,updated_at=NOW() WHERE id=$3`, name, content, id)
+	original, err := time.Parse(time.RFC3339Nano, r.FormValue("original_updated_at"))
+	if err != nil {
+		http.Error(w, "Некорректная версия шаблона", 400)
+		return
+	}
+	result, err := a.db.Exec(r.Context(), `UPDATE note_templates SET name=$1,content=$2,updated_at=NOW() WHERE id=$3 AND owner_id=$4 AND updated_at=$5`, name, content, id, a.auth.userFromRequest(r).ID, original)
 	if err != nil {
 		a.fail(w, "обновление шаблона", err)
 		return
 	}
 	if result.RowsAffected() == 0 {
-		http.Error(w, "Шаблон не найден", 404)
+		http.Error(w, "Шаблон был изменён или удалён. Черновик сохранён.", http.StatusConflict)
 		return
 	}
+	a.clearDraft(r.Context(), a.auth.userFromRequest(r).ID, "template", id)
 	notesRedirect(w, r, "?view=templates&template="+strconv.FormatInt(id, 10)+"&ok=template_saved")
 }
 func (a *notesApp) deleteTemplate(w http.ResponseWriter, r *http.Request) {
@@ -687,7 +815,7 @@ func (a *notesApp) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Неверный ID", 400)
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `DELETE FROM note_templates WHERE id=$1`, id)
+	_, err = a.db.Exec(r.Context(), `DELETE FROM note_templates WHERE id=$1 AND owner_id=$2`, id, a.auth.userFromRequest(r).ID)
 	if err != nil {
 		a.fail(w, "удаление шаблона", err)
 		return
@@ -704,15 +832,44 @@ func (a *notesApp) fromTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folderID, err := notesID(r.FormValue("folder_id"))
-	if err != nil || !a.folderExists(r.Context(), folderID) {
+	if err != nil || !a.folderExists(r.Context(), folderID, a.auth.userFromRequest(r).ID) {
 		http.Error(w, "Выберите папку", 400)
 		return
 	}
 	var id int64
-	err = a.db.QueryRow(r.Context(), `INSERT INTO notes(title,content,folder_id) SELECT name,content,$1 FROM note_templates WHERE id=$2 RETURNING id`, folderID, templateID).Scan(&id)
+	err = a.db.QueryRow(r.Context(), `INSERT INTO notes(title,content,folder_id) SELECT name,content,$1 FROM note_templates WHERE id=$2 AND owner_id=$3 RETURNING id`, folderID, templateID, a.auth.userFromRequest(r).ID).Scan(&id)
 	if err != nil {
 		a.fail(w, "создание заметки из шаблона", err)
 		return
 	}
 	notesRedirect(w, r, "?note="+strconv.FormatInt(id, 10)+"&ok=note_saved")
+}
+
+// shareIDs accepts a list of explicitly chosen recipients. Never share with all accounts automatically.
+func (a *notesApp) shareIDs(r *http.Request) ([]int64, error) {
+	if !notesFlag(r, "is_shared") {
+		return nil, nil
+	}
+	ids, err := notesSelected(r.PostForm["share_user_ids"])
+	if err != nil || len(ids) > 100 || len(ids) == 0 {
+		return nil, fmt.Errorf("select at least one participant")
+	}
+	owner := a.auth.userFromRequest(r).ID
+	for _, id := range ids {
+		if id == owner {
+			return nil, fmt.Errorf("cannot share to yourself")
+		}
+	}
+	return ids, nil
+}
+func (a *notesApp) replaceShares(ctx context.Context, tx pgx.Tx, folderID int64, ids []int64) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM folder_shares WHERE folder_id=$1`, folderID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(ctx, `INSERT INTO folder_shares(folder_id,user_id) VALUES($1,$2)`, folderID, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

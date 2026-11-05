@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Пользователи — Personal Portal</title><link rel="stylesheet" href="/static/auth.css"></head>
+<body class="auth-page">
+ <main class="auth-panel auth-wide">
+  <a href="/notes">← Заметки</a>
+  <h1>Пользователи</h1>
+  {{if .Message}}<p role="status">{{.Message}}</p>{{end}}
+  <h2>Создать аккаунт</h2>
+  <form class="auth-form" method="post" action="/auth/users">
+   <input type="hidden" name="csrf_token" value="{{.Token}}">
+   <label for="username">Логин (латиница, цифры, ., -, _)</label>
+   <input id="username" name="username" required minlength="3" maxlength="40" autocomplete="off">
+   <label for="display">Имя</label>
+   <input id="display" name="display_name" required maxlength="120">
+   <label for="password">Пароль (не менее 12 символов)</label>
+   <input id="password" name="password" type="password" required minlength="12" autocomplete="new-password">
+   <button type="submit">Создать аккаунт</button>
+  </form>
+  <h2>Аккаунты</h2>
+  <ul>{{range .Users}}<li>{{.DisplayName}} — {{.Username}}{{if .IsAdmin}} (администратор){{end}}</li>{{else}}<li>Пока нет пользователей</li>{{end}}</ul>
+ </main>
+</body></html>

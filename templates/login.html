@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <title>Вход — Personal Portal</title>
+ <link rel="stylesheet" href="/static/auth.css">
+ <script src="/static/auth.js" defer></script>
+</head>
+<body class="auth-page">
+ <main class="auth-panel">
+  <div class="auth-logo">▤</div>
+  <h1>Personal Portal</h1>
+  <p class="auth-caption">Ваши заметки и личные данные</p>
+  {{if .Error}}<p role="alert" class="auth-error">{{.Error}}</p>{{end}}
+  {{if .Username}}
+  <div class="remembered-account">
+   <div class="auth-avatar">{{.Username}}</div>
+   <p>Войти как <strong>{{.Username}}</strong></p>
+  </div>
+  {{end}}
+  <form method="post" action="/auth/login" class="auth-form">
+   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+   <input type="hidden" name="next" value="{{.Next}}">
+   <label for="username">Логин</label>
+   <input id="username" name="username" value="{{.Username}}" autocomplete="username" required maxlength="40">
+   <label for="password">Пароль</label>
+   <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+   <button type="submit">Войти</button>
+  </form>
+  {{if .Username}}
+  <button type="button" id="another-account" class="auth-switch">Войти в другой аккаунт</button>
+  {{end}}
+  <p class="auth-footer">Новый аккаунт создаёт администратор портала.</p>
+ </main>
+</body>
+</html>

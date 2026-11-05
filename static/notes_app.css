@@ -116,3 +116,12 @@
 .notes-app .note-readonly-content input[type=checkbox],.notes-app .note-readonly-content input[type=radio] {accent-color:#6256e9;flex-shrink:0;}
 .notes-app .note-readonly-content input:disabled {opacity:1;cursor:default;}
 .notes-app .note-readonly-content .note-radiogroup {margin:8px 0;}
+/* Accounts and private auto-saved drafts */
+.account-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.account-actions form{margin:0}.account-actions button{padding:8px 14px;font-size:13px}
+.account-name{font-size:13px;font-weight:650;color:#54607a}
+.draft-row{display:flex;align-items:center;gap:4px}.draft-row .sidebar-link{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.draft-row form{margin:0}.draft-row button{background:transparent;border:0;color:#9a5060;cursor:pointer;font-size:20px;padding:2px 7px;border-radius:6px}
+.draft-row button:hover{background:#fce9ed}.draft-status{color:#566acb;font-size:13px;margin:8px 0 4px}
+#folder-share-users{width:100%;padding:8px;border:1px solid #d9dff0;border-radius:10px;min-height:100px;background:white}
+@media(max-width:700px){.account-actions{gap:6px}.account-name{display:none}}
