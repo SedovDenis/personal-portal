@@ -2,61 +2,103 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Сервер — Personal Portal</title>
     <link rel="stylesheet" href="/static/style.css">
-    <title>Personal Portal</title>
+    <link rel="stylesheet" href="/static/dashboard.css?v=1">
+    <script src="/static/dashboard.js?v=1" defer></script>
 </head>
-<body>
-    <main class="container">
-        <h1>{{.Title}}</h1>
-
-        <nav>
-            <a href="/">Главная</a>
-            <a href="/notes">Заметки</a>
+<body class="dashboard-page">
+    <header class="dashboard-header">
+        <nav class="dashboard-nav" aria-label="Разделы портала">
+            <a href="/" class="dashboard-brand">Personal Portal</a>
+            <div class="dashboard-nav-links">
+                <a class="active" href="/">Главная</a>
+                <a href="/notes">Заметки</a>
+                <a href="/mortgage">Ипотека</a>
+                {{if .IsAdmin}}<a href="/auth/users">Пользователи</a>{{end}}
+            </div>
+            <span class="dashboard-user">{{.UserName}}</span>
         </nav>
+    </header>
 
-        <section class="server-info">
-            <p><strong>Hostname:</strong> {{.ServerName}}</p>
-            <p><strong>Current time:</strong> {{.CurrentTime}}</p>
-            <p><strong>Status:</strong> {{.Status}}</p>
+    <main class="dashboard-main">
+        <section class="dashboard-intro">
+            <div>
+                <p class="dashboard-eyebrow">Домашний сервер</p>
+                <h1>Панель мониторинга</h1>
+                <p class="dashboard-subtitle">{{.ServerName}} · работает {{.Uptime}}</p>
+            </div>
+            <span class="dashboard-online"><span class="dashboard-dot"></span> Онлайн</span>
         </section>
 
-        <section class="metrics">
+        <section class="dashboard-metrics" aria-label="Показатели сервера">
+            <article class="dashboard-metric">
+                <h2>Процессор</h2>
+                <p class="dashboard-value">{{.CPU}}</p>
+                <progress value="{{.CPUPercent}}" max="100">{{.CPU}}</progress>
+                <p class="dashboard-hint">Текущая загрузка CPU</p>
+            </article>
 
-            <div class="card">
-                <h2>CPU</h2>
-                <p>{{.CPU}}</p>
-                <progress value="{{.CPUPercent}}" max="100"></progress>
-            </div>
+            <article class="dashboard-metric">
+                <h2>Оперативная память</h2>
+                <p class="dashboard-value dashboard-value-small">{{.Memory}}</p>
+                <progress value="{{.MemoryPercent}}" max="100">{{.Memory}}</progress>
+                <p class="dashboard-hint">Использовано / всего</p>
+            </article>
 
-            <div class="card">
-                <h2>Memory</h2>
-                <p>{{.Memory}}</p>
-                <progress value="{{.MemoryPercent}}" max="100"></progress>
-            </div>
+            <article class="dashboard-metric">
+                <h2>Системный SSD</h2>
+                <p class="dashboard-value dashboard-value-small">{{.Disk}}</p>
+                <progress value="{{.DiskPercent}}" max="100">{{.Disk}}</progress>
+                <p class="dashboard-hint">Корневой раздел /</p>
+            </article>
 
-            <div class="card">
-                <h2>System disk</h2>
-                <p>{{.Disk}}</p>
-                <progress value="{{.DiskPercent}}" max="100"></progress>
-            </div>
-
-            <div class="card">
-                <h2>Backup disk</h2>
-
+            <article class="dashboard-metric">
+                <h2>Диск резервных копий</h2>
                 {{if .BackupMounted}}
-                    <p>{{.BackupDisk}}</p>
-                    <progress value="{{.BackupDiskPercent}}" max="100"></progress>
+                    <p class="dashboard-value dashboard-value-small">{{.BackupDisk}}</p>
+                    <progress value="{{.BackupPercent}}" max="100">{{.BackupDisk}}</progress>
+                    <p class="dashboard-hint">/srv/backups</p>
                 {{else}}
-                    <p>Not mounted</p>
+                    <p class="dashboard-value dashboard-value-small dashboard-unavailable">Не подключён</p>
+                    <p class="dashboard-hint">Проверьте /srv/backups</p>
                 {{end}}
-            </div>
-
-            <div class="card">
-                <h2>Uptime</h2>
-                <p>{{.Uptime}}</p>
-            </div>
-
+            </article>
         </section>
+
+        <div class="dashboard-bottom">
+            <section class="dashboard-panel dashboard-details">
+                <h2>Система</h2>
+                <dl>
+                    <div><dt>Имя сервера</dt><dd>{{.ServerName}}</dd></div>
+                    <div><dt>Время сервера</dt><dd>{{.CurrentTime}}</dd></div>
+                    <div><dt>Время работы</dt><dd>{{.Uptime}}</dd></div>
+                </dl>
+                <a href="/" class="dashboard-refresh">Обновить показатели</a>
+            </section>
+
+            {{if .IsAdmin}}
+            <section class="dashboard-panel dashboard-power">
+                <h2>Управление питанием</h2>
+                <p>Команды доступны только администратору. После выключения сервер не будет доступен до следующего включения.</p>
+                <div class="dashboard-actions">
+                    <form method="POST" action="/admin/power" data-dashboard-power="reboot">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <input type="hidden" name="action" value="reboot">
+                        <input type="hidden" name="confirm" value="yes">
+                        <button type="submit" class="dashboard-btn dashboard-btn-reboot">Перезагрузить</button>
+                    </form>
+                    <form method="POST" action="/admin/power" data-dashboard-power="poweroff">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <input type="hidden" name="action" value="poweroff">
+                        <input type="hidden" name="confirm" value="yes">
+                        <button type="submit" class="dashboard-btn dashboard-btn-off">Выключить сервер</button>
+                    </form>
+                </div>
+            </section>
+            {{end}}
+        </div>
     </main>
 </body>
 </html>

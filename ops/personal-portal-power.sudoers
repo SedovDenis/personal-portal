@@ -1,0 +1,3 @@
+# Allow only the root-owned helper with these two literal arguments.
+# The Go service is configured to run as the Linux user 'debian'.
+debian ALL=(root) NOPASSWD: /usr/local/sbin/personal-portal-power reboot, /usr/local/sbin/personal-portal-power poweroff

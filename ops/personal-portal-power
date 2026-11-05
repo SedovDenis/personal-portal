@@ -1,0 +1,19 @@
+#!/bin/sh
+# Installed root-owned under /usr/local/sbin; never writable by the portal user.
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    echo "Expected: reboot or poweroff" >&2
+    exit 64
+fi
+
+case "$1" in
+    reboot|poweroff)
+        # Give the web server time to return HTTP 202 before the host goes down.
+        exec /usr/bin/systemd-run --quiet --on-active=8s /usr/bin/systemctl "$1"
+        ;;
+    *)
+        echo "Unsupported action" >&2
+        exit 64
+        ;;
+esac
