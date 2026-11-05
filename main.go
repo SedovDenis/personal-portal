@@ -51,6 +51,15 @@ type Note struct {
 	UpdatedAt time.Time
 }
 
+type Folder struct {
+	ID         int64
+	Name       string
+	ParendId   *int64
+	IsPublic   bool
+	IsFavorite bool
+	IsShared   bool
+}
+
 func getMemoryUsage() (string, float64, error) {
 	memoryInfo, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
@@ -251,6 +260,39 @@ func connectDB() (*pgxpool.Pool, error) {
 	return db, nil
 }
 
+func getFolders(ctx context.Context, db *pgxpool.Pool) ([]Folder, error) {
+	rows, err := db.Query(
+		ctx,
+		`SELECT id, name, parent_id, is_public, is_favorite, is_shared
+			FROM folders
+			ORDER BY id DESC`,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var folders []Folder
+
+	for rows.Next() {
+		var folder Folder
+
+		if err := rows.Scan(&folder.ID, &folder.Name, &folder.ParendId, &folder.IsPublic, &folder.IsFavorite, &folder.IsShared); err != nil {
+			return nil, err
+		}
+
+		folders = append(folders, folder)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return folders, nil
+}
+
 func main() {
 	db, err := connectDB()
 	if err != nil {
@@ -369,13 +411,25 @@ func main() {
 		if r.Method == http.MethodPost {
 			title := r.FormValue("title")
 			content := r.FormValue("content")
+			folderID, err := strconv.ParseInt(r.FormValue("folder_id"), 10, 64)
 
-			_, err := db.Exec(
+			if err != nil {
+				http.Error(w, "Ошибка получения ID папки", http.StatusInternalServerError)
+				return
+			}
+
+			if folderID <= 0 {
+				http.Error(w, "ID папки должен быть больше 0", http.StatusInternalServerError)
+				return
+			}
+
+			_, err = db.Exec(
 				r.Context(),
-				`INSERT INTO notes (title, content)
-				VALUES ($1, $2)`,
+				`INSERT INTO notes (title, content, folder_id)
+				VALUES ($1, $2, $3)`,
 				title,
 				content,
+				folderID,
 			)
 			if err != nil {
 				log.Printf("Ошибка INSERT в notes: %v", err)
@@ -417,6 +471,13 @@ func main() {
 			return
 		}
 
+		folders, err := getFolders(r.Context(), db)
+		if err != nil {
+			log.Printf("Ошибка получения папок: %v", err)
+			http.Error(w, "Ошибка получения папок", http.StatusInternalServerError)
+			return
+		}
+
 		tmpl, err := template.ParseFiles("templates/notes.html")
 		if err != nil {
 			http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
@@ -425,7 +486,15 @@ func main() {
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-		if err := tmpl.Execute(w, notes); err != nil {
+		data := struct {
+			Notes   []Note
+			Folders []Folder
+		}{
+			Notes:   notes,
+			Folders: folders,
+		}
+
+		if err := tmpl.Execute(w, data); err != nil {
 			log.Printf("template error: %v", err)
 		}
 	})

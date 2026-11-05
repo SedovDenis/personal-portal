@@ -31,10 +31,20 @@
                 ></textarea>
             </p>
 
+            <label for="folder">Папка</label>
+
+            <select id="folder" name="folder_id" required>
+                <option value="">Выберите папку</option>
+
+                {{range .Folders}}
+                    <option value="{{.ID}}">{{.Name}}</option>
+                {{end}}
+            </select>
+
             <button type="submit">Добавить</button>
         </form>
 
-        {{range .}}
+        {{range .Notes}}
             <div class="card">
                 <form method="POST" action="/notes/update">
                     <input type="hidden" name="id" value="{{.ID}}">
@@ -69,6 +79,18 @@
         {{else}}
             <p>Заметок пока нет.</p>
         {{end}}
+
+        <section class="folders">
+            <h2>Папки</h2>
+
+            <ul>
+                {{range .Folders}}
+                    <li>{{.Name}}</li>
+                {{else}}
+                    <li>Папок пока нет</li>
+                {{end}}
+            </ul>
+        </section>
     </main>
 </body>
 </html>
