@@ -123,5 +123,40 @@
 .draft-row{display:flex;align-items:center;gap:4px}.draft-row .sidebar-link{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .draft-row form{margin:0}.draft-row button{background:transparent;border:0;color:#9a5060;cursor:pointer;font-size:20px;padding:2px 7px;border-radius:6px}
 .draft-row button:hover{background:#fce9ed}.draft-status{color:#566acb;font-size:13px;margin:8px 0 4px}
-#folder-share-users{width:100%;padding:8px;border:1px solid #d9dff0;border-radius:10px;min-height:100px;background:white}
+/* Shared-folder recipients: clear, accessible checkbox list. */
+.notes-app .folder-share-users {
+    margin: 10px 0 4px;
+    padding: 10px 12px;
+    border: 1px solid #d9dff0;
+    border-radius: 12px;
+    max-height: 190px;
+    overflow-y: auto;
+    background: #fff;
+}
+.notes-app .folder-share-users legend {
+    padding: 0 5px;
+    color: #5d6884;
+    font-size: 13px;
+    font-weight: 650;
+}
+.notes-app .folder-share-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    margin: 2px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+.notes-app .folder-share-user:hover { background: #f5f5ff; }
+.notes-app .folder-share-user input[type=checkbox] {
+    accent-color: #6256e9;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+}
+.notes-app .folder-share-users:disabled { opacity: .65; }
+.notes-app .folder-share-users:disabled .folder-share-user { cursor: not-allowed; }
 @media(max-width:700px){.account-actions{gap:6px}.account-name{display:none}}

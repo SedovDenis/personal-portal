@@ -254,12 +254,26 @@
         const favoriteFlag = document.getElementById('folder-favorite');
         const sharedFlag = document.getElementById('folder-shared');
         const shareUsers = document.getElementById('folder-share-users');
+        const shareChecks = [...shareUsers.querySelectorAll('input[name="share_user_ids"]')];
+        // The recipient list is always available. Selecting a person makes
+        // the folder shared automatically.
+        for (const check of shareChecks) {
+            check.addEventListener('change', () => {
+                if (check.checked) sharedFlag.checked = true;
+                else if (!shareChecks.some(item => item.checked)) sharedFlag.checked = false;
+            });
+        }
+        sharedFlag.addEventListener('change', () => {
+            if (!sharedFlag.checked) {
+                for (const check of shareChecks) check.checked = false;
+            }
+        });
         const open = () => typeof dialog.showModal === 'function' ? dialog.showModal() : dialog.setAttribute('open', '');
         document.getElementById('new-folder')?.addEventListener('click', () => {
             folderForm.action = '/folders';
             document.getElementById('folder-dialog-title').textContent = 'Новая папка';
             folderForm.reset(); id.value = ''; folderDelete.hidden = true;
-            for (const option of shareUsers.options) option.selected = false;
+            for (const check of shareChecks) check.checked = false;
             for (const option of parent.options) option.hidden = false;
             open(); name.focus();
         });
@@ -272,13 +286,19 @@
                 parent.value = button.dataset.folderParent || '';
                 favoriteFlag.checked = button.dataset.folderFavorite === 'true';
                 sharedFlag.checked = button.dataset.folderShared === 'true';
-                const selected = new Set((button.dataset.folderSharedWith || '').split(','));
-                for (const option of shareUsers.options) option.selected = selected.has(option.value);
+                const selected = new Set((button.dataset.folderSharedWith || '').split(',').filter(Boolean));
+                for (const check of shareChecks) check.checked = selected.has(check.value);
                 for (const option of parent.options) option.hidden = option.value === id.value;
                 document.getElementById('folder-delete-id').value = id.value;
                 folderDelete.hidden = false;
                 open(); name.focus();
             });
+        });
+        folderForm.addEventListener('submit', event => {
+            if (sharedFlag.checked && !shareChecks.some(check => check.checked)) {
+                event.preventDefault();
+                alert('Для совместной папки выберите хотя бы одного пользователя.');
+            }
         });
         document.getElementById('folder-cancel')?.addEventListener('click', () => dialog.close());
         dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });

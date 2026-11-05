@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,5 +42,72 @@ func TestAuthRedirectPathSafety(t *testing.T) {
 		if got := validNext(c.in); got != c.out {
 			t.Fatalf("%q -> %q expected %q", c.in, got, c.out)
 		}
+	}
+}
+
+func TestPortalUserDetails(t *testing.T) {
+	cases := []struct {
+		name, display string
+		valid         bool
+	}{
+		{"admin", "Администратор", true},
+		{"john.doe", "Иван Петров", true},
+		{"ab", "Иван", false},
+		{"in valid", "Иван", false},
+		{"valid_user", "", false},
+		{"valid_user", strings.Repeat("Я", 121), false},
+	}
+	for _, c := range cases {
+		if got := validPortalUserDetails(c.name, c.display); got != c.valid {
+			t.Errorf("validPortalUserDetails(%q, %q) = %t", c.name, c.display, got)
+		}
+	}
+}
+
+func TestUserManagementPermissions(t *testing.T) {
+	auth := &portalAuth{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth/users/update", auth.updateUser)
+	mux.HandleFunc("POST /auth/users/delete", auth.deleteUser)
+	for _, path := range []string{"/auth/users/update", "/auth/users/delete"} {
+		request := httptest.NewRequest("POST", path, strings.NewReader("id=2"))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, request)
+		if res.Code != http.StatusForbidden {
+			t.Errorf("%s without admin: got %d, expected 403", path, res.Code)
+		}
+	}
+}
+
+func TestUsersTemplateRendersManagementForms(t *testing.T) {
+	tmpl, err := template.ParseFiles("templates/users.html")
+	if err != nil {
+		t.Fatalf("parse users template: %v", err)
+	}
+	data := struct {
+		Current        *portalUser
+		Users          []portalUser
+		Token, Message string
+	}{
+		Current: &portalUser{ID: 1, Username: "admin", DisplayName: "Администратор", IsAdmin: true},
+		Users: []portalUser{
+			{ID: 1, Username: "admin", DisplayName: "Администратор", IsAdmin: true},
+			{ID: 2, Username: "demo", DisplayName: "Тест", IsAdmin: false},
+		},
+		Token: "test-csrf",
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, data); err != nil {
+		t.Fatalf("execute users template: %v", err)
+	}
+	text := out.String()
+	for _, fragment := range []string{`action="/auth/users/update"`, `action="/auth/users/delete"`, `name="csrf_token"`, `data-confirm=`} {
+		if !strings.Contains(text, fragment) {
+			t.Errorf("missing %q in users HTML", fragment)
+		}
+	}
+	if got := strings.Count(text, `action="/auth/users/delete"`); got != 1 {
+		t.Errorf("got %d delete forms, expected 1 (non-self only)", got)
 	}
 }

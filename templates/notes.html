@@ -309,11 +309,18 @@
                 <label><input id="folder-favorite" type="checkbox" name="is_favorite"> Избранная</label>
                 <label><input id="folder-shared" type="checkbox" name="is_shared"> Совместная</label>
             </fieldset>
-            <label for="folder-share-users">Кому предоставить доступ (можно выбрать несколько)</label>
-            <select id="folder-share-users" name="share_user_ids" multiple size="5">
-                {{range .Users}}<option value="{{.ID}}">{{.DisplayName}} ({{.Username}})</option>{{end}}
-            </select>
-            <p class="field-help">Удерживайте Ctrl для выбора нескольких пользователей. Доступ действует и во вложенных папках.</p>
+            <fieldset class="folder-share-users" id="folder-share-users">
+                <legend>Кому предоставить доступ (можно выбрать нескольких)</legend>
+                {{range .Users}}
+                <label class="folder-share-user">
+                    <input type="checkbox" name="share_user_ids" value="{{.ID}}">
+                    <span>{{.DisplayName}} ({{.Username}})</span>
+                </label>
+                {{else}}
+                <p class="field-help">Других пользователей пока нет.</p>
+                {{end}}
+            </fieldset>
+            <p class="field-help">Доступ действует и во вложенных папках. По умолчанию никто не выбран.</p>
             <div class="editor-actions"><button class="notes-primary" type="submit">Сохранить</button><button class="notes-secondary" type="button" id="folder-cancel">Отмена</button></div>
         </form>
         <form action="/folders/delete" method="POST" id="folder-delete-form" class="confirm-delete" data-confirm="Удалить пустую папку? Если в ней есть заметки или вложенные папки, удаление будет запрещено.">

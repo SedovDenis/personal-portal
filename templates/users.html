@@ -1,22 +1,101 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Пользователи — Personal Portal</title><link rel="stylesheet" href="/static/auth.css"></head>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Управление пользователями — Personal Portal</title>
+    <link rel="stylesheet" href="/static/auth.css">
+    <script src="/static/auth.js" defer></script>
+</head>
 <body class="auth-page">
- <main class="auth-panel auth-wide">
-  <a href="/notes">← Заметки</a>
-  <h1>Пользователи</h1>
-  {{if .Message}}<p role="status">{{.Message}}</p>{{end}}
-  <h2>Создать аккаунт</h2>
-  <form class="auth-form" method="post" action="/auth/users">
-   <input type="hidden" name="csrf_token" value="{{.Token}}">
-   <label for="username">Логин (латиница, цифры, ., -, _)</label>
-   <input id="username" name="username" required minlength="3" maxlength="40" autocomplete="off">
-   <label for="display">Имя</label>
-   <input id="display" name="display_name" required maxlength="120">
-   <label for="password">Пароль (не менее 12 символов)</label>
-   <input id="password" name="password" type="password" required minlength="12" autocomplete="new-password">
-   <button type="submit">Создать аккаунт</button>
-  </form>
-  <h2>Аккаунты</h2>
-  <ul>{{range .Users}}<li>{{.DisplayName}} — {{.Username}}{{if .IsAdmin}} (администратор){{end}}</li>{{else}}<li>Пока нет пользователей</li>{{end}}</ul>
- </main>
-</body></html>
+    <main class="auth-panel auth-wide">
+        <a href="/notes">← Заметки</a>
+        <h1>Управление пользователями</h1>
+        <p class="auth-caption">Создание, редактирование, смена пароля и удаление аккаунтов.</p>
+
+        {{if .Message}}
+            <p class="auth-notice" role="status">{{.Message}}</p>
+        {{end}}
+
+        <section>
+            <h2>Создать пользователя</h2>
+            <form class="auth-form" method="post" action="/auth/users">
+                <input type="hidden" name="csrf_token" value="{{.Token}}">
+
+                <label for="new-username">Логин</label>
+                <input id="new-username" name="username" minlength="3" maxlength="40" required autocomplete="off">
+
+                <label for="new-display">Имя</label>
+                <input id="new-display" name="display_name" maxlength="120" required>
+
+                <label for="new-password">Пароль (от 12 символов)</label>
+                <input id="new-password" name="password" type="password" minlength="12" maxlength="256" required autocomplete="new-password">
+
+                <button type="submit">Создать аккаунт</button>
+            </form>
+        </section>
+
+        <section>
+            <h2>Существующие аккаунты</h2>
+            <div class="auth-user-list">
+                {{range .Users}}
+                    <article class="auth-user-card">
+                        <header class="auth-user-header">
+                            <div>
+                                <strong>{{.DisplayName}}</strong>
+                                <p>@{{.Username}}</p>
+                            </div>
+                            {{if .IsAdmin}}
+                                <span class="auth-role">Администратор</span>
+                            {{else}}
+                                <span class="auth-role auth-role-user">Пользователь</span>
+                            {{end}}
+                        </header>
+
+                        <details>
+                            <summary>Настройки аккаунта</summary>
+                            <form class="auth-form" method="post" action="/auth/users/update">
+                                <input type="hidden" name="csrf_token" value="{{$.Token}}">
+                                <input type="hidden" name="id" value="{{.ID}}">
+
+                                <label for="username-{{.ID}}">Логин</label>
+                                <input id="username-{{.ID}}" name="username" value="{{.Username}}" minlength="3" maxlength="40" required autocomplete="off">
+
+                                <label for="display-{{.ID}}">Имя</label>
+                                <input id="display-{{.ID}}" name="display_name" value="{{.DisplayName}}" maxlength="120" required>
+
+                                <label for="password-{{.ID}}">Новый пароль</label>
+                                <input id="password-{{.ID}}" name="password" type="password" minlength="12" maxlength="256" placeholder="Не менять — оставить пустым" autocomplete="new-password">
+
+                                <label class="auth-checkbox">
+                                    <input type="checkbox" name="is_admin" value="1" {{if .IsAdmin}}checked{{end}} {{if eq .ID $.Current.ID}}disabled{{end}}>
+                                    Права администратора
+                                </label>
+                                {{if eq .ID $.Current.ID}}
+                                    <input type="hidden" name="is_admin" value="1">
+                                    <p class="auth-hint">Нельзя снять права администратора с собственного аккаунта.</p>
+                                {{end}}
+
+                                <button type="submit">Сохранить изменения</button>
+                            </form>
+
+                            {{if ne .ID $.Current.ID}}
+                                <form class="auth-delete-form" method="post" action="/auth/users/delete"
+                                      data-confirm="Удалить аккаунт «{{.Username}}»? Его папки, заметки и шаблоны перейдут вам. Сессии и несохранённые черновики пользователя будут удалены.">
+                                    <input type="hidden" name="csrf_token" value="{{$.Token}}">
+                                    <input type="hidden" name="id" value="{{.ID}}">
+                                    <button type="submit" class="auth-danger">Удалить аккаунт</button>
+                                </form>
+                            {{else}}
+                                <p class="auth-hint">Свой аккаунт удалить нельзя.</p>
+                            {{end}}
+                        </details>
+                    </article>
+                {{else}}
+                    <p>Пользователей пока нет.</p>
+                {{end}}
+            </div>
+        </section>
+    </main>
+</body>
+</html>
